@@ -7,6 +7,9 @@ pipeline does not reimplement workload generation, EVM execution, or modeling.
 The campaign is compute-only. It does not change gas constants, recommend a
 block gas limit, or price memory, storage, state growth, or network capacity.
 
+For pinned sources, fresh-generation recipes, new-machine setup, and remaining
+glue-pricing work, see the [self-contained handoff document](compute-handoff.md).
+
 ## Eligible workloads
 
 The allowlist contains Osaka-compatible cases in these families:

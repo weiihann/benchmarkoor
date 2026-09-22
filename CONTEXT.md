@@ -13,6 +13,21 @@ construction and independent expected outcomes. evm2 owns execution and
 operation counting. evm-gasfit remains a pinned dependency; benchmarkoor does
 not copy its modeling logic.
 
+## Current handoff
+
+The local 2026-09-22 full-corpus run is an execution and measurement trial, not
+a finished glue-adjusted gas proposal. The user will repeat the campaign on a
+different reference machine. The working calibration is 500 million gas/second.
+The full trial kept glue disabled; required CALLDATASIZE, MLOAD, and STATICCALL
+calibration drivers are absent. Do not enable glue blindly or call the existing
+`WORKLOAD_*` slopes isolated opcode prices.
+
+Read [the fresh-machine handoff](docs/compute-handoff.md) for pinned source
+commits, fresh-generation recipes, tested setup commands, and the remaining work.
+Transfer only that Markdown document; it contains the required context.
+There is no accompanying context bundle. Do not transfer or analyze old results,
+diagnostics, host manifests, reports, or pre-generated workloads on the new machine.
+
 ## Scope
 
 The eligible corpus is the existing Osaka-compatible arithmetic, bitwise,

@@ -1,0 +1,48 @@
+# Prague native-worker compute pipeline control campaign.
+#
+# Build the pinned local images first, then run:
+#   benchmarkoor build --config examples/configuration/compute.yaml
+#   benchmarkoor run --config examples/configuration/compute.yaml
+#
+# The zero point produces setup controls; non-zero points calibrate the same
+# ADD and KECCAK256 witness workloads. Counts are thousands of target
+# operations, not a gas budget. This is a local pipeline-control configuration,
+# not an AWS r7a.4xlarge calibration result.
+compute:
+  id: prague-add-keccak-local-control
+  results_dir: ./results
+  container_runtime: docker
+  worker_image: benchmarkoor-compute-worker:local
+  generator:
+    image: benchmarkoor-compute-generator:local
+    tests:
+      - tests/benchmark/compute/instruction/test_arithmetic.py
+      - tests/benchmark/compute/instruction/test_keccak.py
+    filter: test_add_workload_witness or test_keccak_workload_witness
+    fixed_opcode_count: [0, 0.5, 1, 2, 4]
+    families: [arithmetic, keccak]
+    # Keep one fixed native allowance for every count point. Do not scale it
+    # with work; the exported cases must remain inside the NewL1 limit.
+    tx_gas_cap: 15000000
+  analyzer:
+    image: benchmarkoor-compute-analyzer:local
+    # This archived campaign policy requires independent sessions and explicit
+    # uncertainty/holdout gates; it is not a pricing anchor.
+    config: examples/configuration/compute-gasfit.yaml
+  seed: 20260921
+  # A fresh worker container is used for each session. Pilot, warmup, and
+  # qualification rows are retained separately in the campaign archive.
+  sessions: 4
+  pilot_repetitions: 2
+  warmup_repetitions: 1
+  repetitions: 5
+  timeout: 20m
+  resource_limits:
+    cpuset_count: 4
+    memory: 16g
+    swap_disabled: true
+  source_paths:
+    benchmarkoor: .
+    newl1: ../bnbchain-newL1
+    execution_specs: ../execution-specs
+    evm_gasfit: ../evm-gasfit

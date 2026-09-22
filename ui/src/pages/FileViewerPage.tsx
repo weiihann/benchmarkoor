@@ -269,7 +269,7 @@ export function FileViewerPage() {
   const hasScrolledRef = useRef(false)
 
   const { data: config } = useRunConfig(runId)
-  const { data: suite } = useSuite(config?.suite_hash ?? '')
+  const { data: suite } = useSuite(config?.compute ? '' : config?.suite_hash ?? '')
 
   const filePath = useMemo(() => {
     const basePath = search.base ?? `runs/${runId}`
@@ -476,11 +476,11 @@ export function FileViewerPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/suites" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
-          Suites
+        <Link to="/runs" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
+          Runs
         </Link>
         <span>/</span>
-        {config?.suite_hash && (
+        {!config?.compute && config?.suite_hash && (
           <>
             <Link
               to="/suites/$suiteHash"

@@ -256,10 +256,15 @@ export function RunsTable({
             const entryLabels = entry.metadata
               ? Object.entries(entry.metadata).filter(([k]) => !k.startsWith('github.') && k !== 'name')
               : []
+            const isComputeRun = entry.metadata?.mode === 'compute'
             const colSpan = (selectable ? 1 : 0) + 3 + (showSuite ? 1 : 0) + 6
             const pendingDeletion = isPendingDeletion(entry)
-            const rowSelectable = selectable && isEntrySelectable(entry)
-            const selectTooltip = selectable ? selectTooltipFor(entry, selectionVariant) : undefined
+            const rowSelectable = selectable
+              && isEntrySelectable(entry)
+              && (selectionVariant !== 'compare' || !isComputeRun)
+            const selectTooltip = selectable && selectionVariant === 'compare' && isComputeRun
+              ? 'Compute campaigns use their own analysis and cannot be selected for Ethereum suite comparison'
+              : selectable ? selectTooltipFor(entry, selectionVariant) : undefined
             return (
             <Fragment key={entry.run_id}>
             <tr
@@ -371,7 +376,11 @@ export function RunsTable({
               </td>
               {showSuite && (
                 <td className="relative z-10 whitespace-nowrap px-3 py-2 font-mono text-sm/6 sm:px-4 sm:py-2.5">
-                  {entry.suite_hash ? (
+                  {isComputeRun ? (
+                    <span className="rounded-xs bg-violet-100 px-1.5 py-0.5 text-xs/5 font-medium text-violet-800 dark:bg-violet-900/50 dark:text-violet-200">
+                      Compute
+                    </span>
+                  ) : entry.suite_hash ? (
                     <SuiteCell suiteHash={entry.suite_hash} />
                   ) : (
                     <span className="text-gray-400 dark:text-gray-500">-</span>

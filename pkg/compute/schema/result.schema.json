@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "result.schema.json",
+  "title": "NewL1 compute worker sample result (protocol v1)",
+  "description": "One JSONL line flushed by the worker per terminal sample outcome. execution_boundary is always newl1_block_execution: the synchronous NewL1EvmBlockExecution::execute call including user transactions, the system tail, and the LtHash commitment. Null numeric fields mean unavailable, never zero. Artifact hashes are SHA-256 digests of substantive computed artifacts (baseline identity, prepared workload/context, execution commitment); unsupported results leave them null rather than fabricating values. gas_before_settlement is present only when an observation hook on the unchanged charging path proves its meaning; it must never be obtained by switching settlement to charge-by-limit simulation. Target and opcode counts are diagnostic-only; opcode_counts keys use canonical mnemonics (KECCAK256, never SHA3) and may carry semantic precompile keys PRECOMPILE_<address> counting actual invocations of that address, with target_count equal to the semantic count. The Go validator in pkg/compute/protocol.go additionally enforces receipt-independent contradictory-state rules described below and unique session/sample identity presence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "session_id", "sample_id", "case_id", "repetition",
+    "phase", "status", "execution_duration_ns", "execution_boundary",
+    "baseline_hash", "prepared_hash", "commitment_hash", "correctness_passed",
+    "target_count", "opcode_counts", "declared_gas", "charged_gas",
+    "system_gas", "gas_before_settlement"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "sample_id": { "type": "string", "minLength": 1 },
+    "case_id": { "type": "string", "minLength": 1 },
+    "repetition": { "type": "integer", "minimum": 0 },
+    "phase": { "enum": ["diagnostic", "pilot", "warmup", "qualification"] },
+    "status": { "enum": ["executed", "failed", "unsupported"] },
+    "execution_duration_ns": { "type": ["integer", "null"], "minimum": 0 },
+    "execution_boundary": { "const": "newl1_block_execution" },
+    "baseline_hash": { "$ref": "#/$defs/artifactHash" },
+    "prepared_hash": { "$ref": "#/$defs/artifactHash" },
+    "commitment_hash": { "$ref": "#/$defs/artifactHash" },
+    "correctness_passed": { "type": "boolean" },
+    "target_count": { "type": ["integer", "null"], "minimum": 0 },
+    "opcode_counts": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "integer", "minimum": 0 },
+      "propertyNames": { "not": { "const": "SHA3" } }
+    },
+    "declared_gas": { "type": ["integer", "null"], "minimum": 0 },
+    "charged_gas": { "type": ["integer", "null"], "minimum": 0 },
+    "system_gas": { "type": ["integer", "null"], "minimum": 0 },
+    "gas_before_settlement": { "type": ["integer", "null"], "minimum": 0 },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "message"],
+      "properties": {
+        "stage": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "executed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": [
+          "correctness_passed", "baseline_hash", "prepared_hash",
+          "commitment_hash", "declared_gas", "charged_gas"
+        ],
+        "properties": {
+          "correctness_passed": { "const": true },
+          "baseline_hash": { "type": "string" },
+          "prepared_hash": { "type": "string" },
+          "commitment_hash": { "type": "string" },
+          "error": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "failed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"],
+        "description": "Failed results may retain the observed duration, hashes, and gas when the production execution call returned before the oracle failed."
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "unsupported" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "execution_duration_ns": { "type": "null" },
+          "correctness_passed": { "const": false },
+          "baseline_hash": { "type": "null" },
+          "prepared_hash": { "type": "null" },
+          "commitment_hash": { "type": "null" },
+          "target_count": { "type": "null" },
+          "opcode_counts": { "type": "null" },
+          "declared_gas": { "type": "null" },
+          "charged_gas": { "type": "null" },
+          "system_gas": { "type": "null" },
+          "gas_before_settlement": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "phase": { "enum": ["pilot", "warmup", "qualification"] } },
+        "required": ["phase"]
+      },
+      "then": {
+        "properties": {
+          "target_count": { "type": "null" },
+          "opcode_counts": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": { "const": "diagnostic" },
+          "status": { "const": "executed" }
+        },
+        "required": ["phase", "status"]
+      },
+      "then": {
+        "required": ["target_count"],
+        "properties": {
+          "target_count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": { "enum": ["pilot", "warmup", "qualification"] },
+          "status": { "const": "executed" }
+        },
+        "required": ["phase", "status"]
+      },
+      "then": {
+        "required": ["execution_duration_ns"],
+        "properties": {
+          "execution_duration_ns": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "artifactHash": {
+      "type": ["string", "null"],
+      "pattern": "^(?:0x)?[0-9a-fA-F]{64}$"
+    }
+  }
+}

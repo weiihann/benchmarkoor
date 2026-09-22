@@ -74,6 +74,7 @@ type Config struct {
 	Runner  RunnerConfig   `yaml:"runner" mapstructure:"runner"`
 	API     *APIConfig     `yaml:"api,omitempty" mapstructure:"api"`
 	Builder *BuilderConfig `yaml:"builder,omitempty" mapstructure:"builder"`
+	Compute *ComputeConfig `yaml:"compute,omitempty" mapstructure:"compute" json:"compute,omitempty"`
 }
 
 // BuilderConfig is the top-level builder block. It houses state-actor
@@ -2296,6 +2297,37 @@ func bindEnvKeys(v *viper.Viper) {
 		"builder.state_actor.pull_policy",
 		"builder.eest_payloads.container_runtime",
 		"builder.eest_payloads.pull_policy",
+		// Compute campaign settings
+		"compute.id",
+		"compute.workload",
+		"compute.results_dir",
+		"compute.container_runtime",
+		"compute.worker_image",
+		"compute.analyzer.image",
+		"compute.analyzer.config",
+		"compute.seed",
+		"compute.sessions",
+		"compute.pilot_repetitions",
+		"compute.warmup_repetitions",
+		"compute.repetitions",
+		"compute.timeout",
+		"compute.generator.image",
+		"compute.generator.filter",
+		"compute.generator.marker",
+		"compute.generator.tx_gas_cap",
+		"compute.generator.tests",
+		"compute.generator.fixed_opcode_count",
+		"compute.generator.families",
+		"compute.resource_limits.cpuset_count",
+		"compute.resource_limits.memory",
+		"compute.resource_limits.swap_disabled",
+		"compute.resource_limits.cpu_freq",
+		"compute.resource_limits.cpu_turboboost",
+		"compute.resource_limits.cpu_freq_governor",
+		"compute.source_paths.benchmarkoor",
+		"compute.source_paths.newl1",
+		"compute.source_paths.execution_specs",
+		"compute.source_paths.evm_gasfit",
 	}
 
 	for _, key := range keys {
@@ -2450,6 +2482,20 @@ func (c *Config) applyDefaults() {
 			c.Builder.PreRuns.JWT = DefaultJWT
 		}
 	}
+
+	// Compute campaigns have no runner dependency. Keep their defaults local so
+	// a compute-only config cannot inherit hidden Ethereum runner state.
+	if c.Compute != nil {
+		if c.Compute.ResultsDir == "" {
+			c.Compute.ResultsDir = DefaultResultsDir
+		}
+		if c.Compute.ContainerRuntime == "" {
+			c.Compute.ContainerRuntime = "docker"
+		}
+		if c.Compute.Generator != nil && c.Compute.Generator.TxGasCap == 0 {
+			c.Compute.Generator.TxGasCap = DefaultComputeTxGasCap
+		}
+	}
 }
 
 // GetStateActorContainerRuntime returns the container runtime to use for
@@ -2502,6 +2548,10 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 	var opt ValidateOpts
 	if len(opts) > 0 {
 		opt = opts[0]
+	}
+
+	if c.Compute != nil {
+		return c.ValidateCompute()
 	}
 
 	if len(c.Runner.Instances) == 0 {

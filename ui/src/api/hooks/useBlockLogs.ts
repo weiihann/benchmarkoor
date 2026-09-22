@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchData } from '../client'
 import type { BlockLogs } from '../types'
 
-export function useBlockLogs(runId: string) {
+export function useBlockLogs(runId: string, enabled = true) {
   return useQuery({
     queryKey: ['run', runId, 'block-logs'],
     queryFn: async () => {
@@ -14,6 +14,6 @@ export function useBlockLogs(runId: string) {
       }
       return data
     },
-    enabled: !!runId,
+    enabled: !!runId && enabled,
   })
 }

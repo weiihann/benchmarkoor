@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "fork": "Prague",
+  "generator": {
+    "revision": "ad202d76b52c074ffa9395bd69a72f2a12ad1784",
+    "seed": 20260921
+  },
+  "cases": [
+    {
+      "id": "compute/instruction/test_arithmetic.py__test_add[u_int8-count_1000]",
+      "family": "arithmetic",
+      "target_operation": "ADD",
+      "parameters": {
+        "operand_class": "u_int8",
+        "requested_count": 1000
+      },
+      "status": "ready",
+      "pre": {
+        "0x7b5a41b2bc1ce4de7c8b1e7b1c4db01c3e9fa111": {
+          "balance": "0x0",
+          "nonce": "0x0",
+          "code": "0x6001600101",
+          "storage": {
+            "0x0000000000000000000000000000000000000000000000000000000000000001": "0x0000000000000000000000000000000000000000000000000000000000000002"
+          }
+        },
+        "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+          "balance": "0x30d40",
+          "nonce": "0x0",
+          "storage": {}
+        }
+      },
+      "transactions": [
+        {
+          "sender": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+          "secret_key": "0x45a915e4d060149eb43659682e8a2380bc25f50c1bf0b2b0f0e0f1e0d0c0b0a0",
+          "to": "0x7b5a41b2bc1ce4de7c8b1e7b1c4db01c3e9fa111",
+          "data": "0x",
+          "value": "0x0",
+          "gas_limit": 10000000
+        }
+      ],
+      "expected": {
+        "receipts": [
+          {
+            "success": true,
+            "logs": [
+              {
+                "address": "0x7b5a41b2bc1ce4de7c8b1e7b1c4db01c3e9fa111",
+                "topics": [
+                  "0xabababababababababababababababababababababababababababababababab"
+                ],
+                "data": "0x0101010101010101010101010101010101010101010101010101010101010101"
+              }
+            ]
+          }
+        ],
+        "storage": {
+          "0x7b5a41b2bc1ce4de7c8b1e7b1c4db01c3e9fa111": {
+            "0x0000000000000000000000000000000000000000000000000000000000000001": "0x0000000000000000000000000000000000000000000000000000000000000002"
+          }
+        }
+      }
+    },
+    {
+      "id": "compute/precompile/test_precompile.py__test_blake2f[rounds_1-count_500]",
+      "family": "precompile",
+      "target_operation": "BLAKE2F",
+      "parameters": {
+        "precompile_address": "0x0000000000000000000000000000000000000009",
+        "rounds": 1,
+        "requested_count": 500
+      },
+      "status": "ready",
+      "pre": {
+        "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+          "balance": "0x30d40",
+          "nonce": "0x0",
+          "storage": {}
+        }
+      },
+      "transactions": [
+        {
+          "sender": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+          "secret_key": "0x45a915e4d060149eb43659682e8a2380bc25f50c1bf0b2b0f0e0f1e0d0c0b0a0",
+          "to": "0x0000000000000000000000000000000000000009",
+          "data": "0x000000c80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+          "value": "0x0",
+          "gas_limit": 1000000
+        }
+      ],
+      "expected": {
+        "receipts": [
+          {
+            "success": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "compute/instruction/test_arithmetic.py__test_mod[mod_int128-count_1000]",
+      "family": "arithmetic",
+      "target_operation": "MOD",
+      "status": "unsupported",
+      "reason": "data-dependent MOD has no fixed-count variant",
+      "pre": null,
+      "transactions": null,
+      "parameters": null
+    }
+  ]
+}

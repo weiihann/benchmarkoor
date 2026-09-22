@@ -1,0 +1,144 @@
+name: Check - Prague Compute
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/ci.compute.yaml'
+      - 'cmd/benchmarkoor/**'
+      - 'pkg/compute/**'
+      - 'pkg/config/**'
+      - 'Dockerfile.compute-*'
+      - 'scripts/compute/**'
+      - 'examples/configuration/compute*.yaml'
+      - 'go.mod'
+      - 'go.sum'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/ci.compute.yaml'
+      - 'cmd/benchmarkoor/**'
+      - 'pkg/compute/**'
+      - 'pkg/config/**'
+      - 'Dockerfile.compute-*'
+      - 'scripts/compute/**'
+      - 'examples/configuration/compute*.yaml'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch:
+    inputs:
+      newl1_ref:
+        description: 'Published 40-character commit SHA for bnb-chain/bnbchain-newL1'
+        required: true
+        type: string
+      execution_specs_ref:
+        description: 'Published 40-character commit SHA for weiihann/execution-specs'
+        required: true
+        type: string
+      evm_gasfit_ref:
+        description: 'Published 40-character commit SHA for weiihann/evm-gasfit'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compute-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compute-contract:
+    name: Compute contract, reconciliation, and export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out benchmarkoor
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version: '1.24'
+          cache-dependency-path: go.sum
+
+      - name: Test compute boundaries
+        env:
+          CGO_ENABLED: '0'
+        run: >-
+          go test -tags
+          'exclude_graphdriver_btrfs,exclude_graphdriver_devicemapper,containers_image_openpgp'
+          ./pkg/config ./pkg/compute
+
+  cross-repository-smoke:
+    name: Pinned cross-repository compute smoke
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out benchmarkoor
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Require immutable source revisions
+        env:
+          NEWL1_REF: ${{ inputs.newl1_ref }}
+          EXECUTION_SPECS_REF: ${{ inputs.execution_specs_ref }}
+          EVM_GASFIT_REF: ${{ inputs.evm_gasfit_ref }}
+        run: |
+          for revision in "$NEWL1_REF" "$EXECUTION_SPECS_REF" "$EVM_GASFIT_REF"; do
+            if [[ ! "$revision" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              printf 'source revision must be a published 40-character commit SHA: %s\n' "$revision" >&2
+              exit 1
+            fi
+          done
+
+      - name: Check out pinned NewL1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: bnb-chain/bnbchain-newL1
+          ref: ${{ inputs.newl1_ref }}
+          path: third_party/bnbchain-newL1
+          persist-credentials: false
+
+      - name: Check out pinned execution-specs
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: weiihann/execution-specs
+          ref: ${{ inputs.execution_specs_ref }}
+          path: third_party/execution-specs
+          persist-credentials: false
+
+      - name: Check out pinned evm-gasfit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: weiihann/evm-gasfit
+          ref: ${{ inputs.evm_gasfit_ref }}
+          path: third_party/evm-gasfit
+          persist-credentials: false
+
+      - name: Expose frozen sibling contexts
+        run: |
+          ln -s "$GITHUB_WORKSPACE/third_party/bnbchain-newL1" "$GITHUB_WORKSPACE/../bnbchain-newL1"
+          ln -s "$GITHUB_WORKSPACE/third_party/execution-specs" "$GITHUB_WORKSPACE/../execution-specs"
+          ln -s "$GITHUB_WORKSPACE/third_party/evm-gasfit" "$GITHUB_WORKSPACE/../evm-gasfit"
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version: '1.24'
+          cache-dependency-path: go.sum
+
+      - name: Run real native compute smoke
+        env:
+          COMPUTE_SMOKE_RESULTS_DIR: ${{ github.workspace }}/results/compute-smoke-ci
+        run: scripts/compute/smoke.sh
+
+      - name: Retain compute smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: compute-smoke-${{ github.run_id }}
+          path: results/compute-smoke-ci
+          if-no-files-found: warn

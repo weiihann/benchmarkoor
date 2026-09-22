@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "session_id": "sess-20260921-0002",
+  "sample_id": "s-0009",
+  "case_id": "compute/instruction/test_arithmetic.py__test_mod[mod_int128-count_1000]",
+  "repetition": 0,
+  "phase": "pilot",
+  "status": "unsupported",
+  "execution_duration_ns": null,
+  "execution_boundary": "newl1_block_execution",
+  "baseline_hash": null,
+  "prepared_hash": null,
+  "commitment_hash": null,
+  "correctness_passed": false,
+  "target_count": null,
+  "opcode_counts": null,
+  "declared_gas": null,
+  "charged_gas": null,
+  "system_gas": null,
+  "gas_before_settlement": null,
+  "error": {
+    "stage": "workload",
+    "message": "case marked unsupported by generator: data-dependent MOD has no fixed-count variant"
+  }
+}

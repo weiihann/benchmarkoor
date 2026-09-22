@@ -5,6 +5,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 ## Table of Contents
 
 - [Overview](#overview)
+- [Compute Campaigns](#compute-campaigns)
 - [Environment Variables](#environment-variables)
   - [Config-local variables (`global.env`)](#config-local-variables-globalenv)
   - [Environment Variable Overrides](#environment-variable-overrides)
@@ -35,6 +36,12 @@ Benchmarkoor uses YAML configuration files to define benchmark settings, client 
 ```bash
 benchmarkoor run --config config.yaml
 ```
+
+## Compute Campaigns
+
+The top-level `compute` mapping selects the Prague native-worker pipeline instead of the ordinary Ethereum-client runner. It requires exactly one of `workload` or `generator`, a worker image, an analyzer image and YAML configuration, a Docker or Podman runtime, a deterministic seed, and phase/session counts. Compute analysis requires an explicit qualification policy with confidence, uncertainty, held-out-error, and minimum-session settings.
+
+Use [`compute.yaml`](../examples/configuration/compute.yaml) for the local ADD and KECCAK256 control campaign and [`compute-gasfit.yaml`](../examples/configuration/compute-gasfit.yaml) for its anchorless analysis policy. The complete build, measurement, artifact-retention, offline-replay, baseline, and comparison procedure is in [Prague Compute Campaigns](compute.md).
 
 ## Environment Variables
 

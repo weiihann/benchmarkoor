@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "workload_path": "workloads/prague-compute.json",
+  "session_id": "sess-20260921-0001",
+  "mode": "diagnostic",
+  "chain": "devnet",
+  "samples": [
+    {
+      "sample_id": "s-0001",
+      "case_id": "compute/instruction/test_arithmetic.py__test_add[u_int8-count_1000]",
+      "repetition": 0,
+      "phase": "diagnostic"
+    },
+    {
+      "sample_id": "s-0002",
+      "case_id": "compute/precompile/test_precompile.py__test_blake2f[rounds_1-count_500]",
+      "repetition": 0,
+      "phase": "diagnostic"
+    }
+  ]
+}

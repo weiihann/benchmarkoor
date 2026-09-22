@@ -1,0 +1,50 @@
+# Analysis policy for examples/configuration/compute.yaml.
+#
+# This is an anchorless local correctness/analysis smoke: it compares measured
+# full-workload slopes with the Prague table but does not claim an official
+# calibration, recommend prices, or create pricing scenarios.
+version: 1
+clients: [newl1]
+gas_costs:
+  fork: prague
+output:
+  plots: true
+modeling:
+  bootstrap_iterations: 200
+  random_seed: 20260921
+# Disabled deliberately: these are setup-differenced full-workload slopes, not
+# isolated opcode prices without their wrapper and supporting instructions.
+glue_adjustment:
+  enabled: false
+qualification:
+  confidence_level: 0.95
+  max_condition_number: 1.0e8
+  max_residual_curvature_r2: 0.1
+  max_relative_uncertainty: 0.5
+  max_holdout_error: 0.25
+  min_sessions: 4
+  enforce_fit_quality: true
+  block_unqualified: true
+campaign:
+  eligible_phases: [qualification]
+  eligible_statuses: [executed]
+  require_correctness_passed: true
+models:
+  custom:
+    - test_name: test_add_workload_witness
+      target_operation: ADD
+      overhead_baseline_param: overhead_baseline
+      overhead_baseline_match_params: []
+      model_params:
+        target_coef: OPCODE_ADD
+    - test_name: test_keccak_workload_witness
+      target_operation: KECCAK256
+      overhead_baseline_param: overhead_baseline
+      overhead_baseline_match_params: [input_length]
+      fixture_params:
+        input_words:
+          source: input_length
+          transform: bytes_to_words
+      model_params:
+        target_coef: OPCODE_KECCAK256_BASE
+        input_words: OPCODE_KECCAK256_PER_WORD

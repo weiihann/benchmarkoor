@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "result.schema.json",
+  "title": "evm2 compute worker sample result (protocol v2)",
+  "description": "One terminal JSONL result. The timed boundary covers evm2 transaction validation, execution, settlement, and state commit. Baseline restoration, EVM construction, workload parsing, and correctness checks are excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "session_id", "sample_id", "case_id", "repetition",
+    "phase", "status", "execution_duration_ns", "execution_boundary",
+    "baseline_hash", "prepared_hash", "commitment_hash", "correctness_passed",
+    "target_count", "opcode_counts", "declared_gas", "charged_gas"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "sample_id": { "type": "string", "minLength": 1 },
+    "case_id": { "type": "string", "minLength": 1 },
+    "repetition": { "type": "integer", "minimum": 0 },
+    "phase": { "enum": ["diagnostic", "pilot", "warmup", "qualification"] },
+    "status": { "enum": ["executed", "failed", "unsupported"] },
+    "execution_duration_ns": { "type": ["integer", "null"], "minimum": 0 },
+    "execution_boundary": { "const": "evm2_transaction_execution" },
+    "baseline_hash": { "$ref": "#/$defs/artifactHash" },
+    "prepared_hash": { "$ref": "#/$defs/artifactHash" },
+    "commitment_hash": { "$ref": "#/$defs/artifactHash" },
+    "correctness_passed": { "type": "boolean" },
+    "target_count": { "type": ["integer", "null"], "minimum": 0 },
+    "opcode_counts": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "integer", "minimum": 0 },
+      "propertyNames": { "not": { "const": "SHA3" } }
+    },
+    "declared_gas": { "type": ["integer", "null"], "minimum": 0 },
+    "charged_gas": { "type": ["integer", "null"], "minimum": 0 },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "message"],
+      "properties": {
+        "stage": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "executed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "correctness_passed": { "const": true },
+          "baseline_hash": { "type": "string" },
+          "prepared_hash": { "type": "string" },
+          "commitment_hash": { "type": "string" },
+          "declared_gas": { "type": "integer" },
+          "charged_gas": { "type": "integer" },
+          "error": false
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+      "then": { "required": ["error"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "unsupported" } }, "required": ["status"] },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "execution_duration_ns": { "type": "null" },
+          "correctness_passed": { "const": false },
+          "baseline_hash": { "type": "null" },
+          "prepared_hash": { "type": "null" },
+          "commitment_hash": { "type": "null" },
+          "target_count": { "type": "null" },
+          "opcode_counts": { "type": "null" },
+          "declared_gas": { "type": "null" },
+          "charged_gas": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "phase": { "enum": ["pilot", "warmup", "qualification"] } },
+        "required": ["phase"]
+      },
+      "then": {
+        "properties": {
+          "target_count": { "type": "null" },
+          "opcode_counts": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "phase": { "const": "diagnostic" }, "status": { "const": "executed" } },
+        "required": ["phase", "status"]
+      },
+      "then": { "properties": { "target_count": { "type": "integer", "minimum": 0 } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": { "enum": ["pilot", "warmup", "qualification"] },
+          "status": { "const": "executed" }
+        },
+        "required": ["phase", "status"]
+      },
+      "then": { "properties": { "execution_duration_ns": { "type": "integer", "minimum": 1 } } }
+    }
+  ],
+  "$defs": {
+    "artifactHash": {
+      "type": ["string", "null"],
+      "pattern": "^(?:0x)?[0-9a-fA-F]{64}$"
+    }
+  }
+}

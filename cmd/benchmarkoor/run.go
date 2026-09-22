@@ -65,6 +65,10 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	if cfg.Compute != nil {
+		return runComputeCampaign(cfg.Compute)
+	}
+
 	// Merge CLI metadata labels into config (CLI wins on conflict).
 	for _, entry := range metadataLabels {
 		k, v, ok := strings.Cut(entry, "=")

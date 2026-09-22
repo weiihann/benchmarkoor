@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "session_id": "sess-20260921-0001",
+  "sample_id": "s-0002",
+  "case_id": "compute/instruction/test_arithmetic.py__test_add[u_int8-count_1]",
+  "repetition": 0,
+  "phase": "qualification",
+  "status": "executed",
+  "execution_duration_ns": 421807333,
+  "execution_boundary": "evm2_transaction_execution",
+  "baseline_hash": "5f2b9c41d8e07a63b4c1f9d2e8a30756c9b1e4d7f3a28c05b6e9d1f4a7c3b8e2",
+  "prepared_hash": "7d1e4f8b2c6a9305e8f1b4d7c2a5e8f103b6d9c2e5f8a1b4d7c0e3f6a9b2c5d8",
+  "commitment_hash": "9a3c6e1f8b4d7c2a5e0f3b6d9c1a4e7f2b5d8c0a3e6f1b4d7c2a5e8f103b6d9c",
+  "correctness_passed": true,
+  "target_count": null,
+  "opcode_counts": null,
+  "declared_gas": 100000,
+  "charged_gas": 21009
+}

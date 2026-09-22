@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "workload_path": "workloads/osaka-compute.json",
+  "session_id": "sess-20260921-0001",
+  "mode": "diagnostic",
+  "samples": [
+    {
+      "sample_id": "s-0001",
+      "case_id": "compute/instruction/test_arithmetic.py__test_add[u_int8-count_1]",
+      "repetition": 0,
+      "phase": "diagnostic"
+    }
+  ]
+}

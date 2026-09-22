@@ -84,7 +84,12 @@ export function RunsPage() {
 
   const suiteHashes = useMemo(() => {
     if (!index) return []
-    const suiteSet = new Set(index.entries.map((e) => e.suite_hash).filter((s): s is string => !!s))
+    const suiteSet = new Set(
+      index.entries
+        .filter((entry) => entry.metadata?.mode !== 'compute')
+        .map((entry) => entry.suite_hash)
+        .filter((hash): hash is string => !!hash),
+    )
     return Array.from(suiteSet).sort()
   }, [index])
 

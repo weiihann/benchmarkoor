@@ -92,6 +92,10 @@ func runBuild(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	if cfg.Compute != nil {
+		return runComputeBuild(cfg.Compute)
+	}
+
 	if err := cfg.ValidateBuilder(); err != nil {
 		return fmt.Errorf("validating config: %w", err)
 	}

@@ -176,6 +176,39 @@ export interface StartBlock {
 }
 
 // config.json per run
+export interface ComputeAnalysisArtifact {
+  name: string
+  path: string
+}
+
+export type ComputeAnalysisStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'inconclusive'
+
+export interface ComputeAnalysisSummary {
+  status: ComputeAnalysisStatus
+  attempt_id?: string
+  artifacts?: ComputeAnalysisArtifact[]
+}
+
+export interface ComputeRunSummary {
+  schema_version: 1
+  manifest_path: string
+  samples_path: string
+  analysis: ComputeAnalysisSummary
+}
+
+export interface ComputeManifest {
+  schema_version: 1
+  hardware?: Record<string, unknown>
+  boundary?: string
+}
+
+export interface ComputeSample {
+  status: 'executed' | 'failed' | 'unsupported'
+  phase?: 'diagnostic' | 'pilot' | 'warmup' | 'qualification'
+  correctness_passed?: boolean
+  execution_boundary?: string
+}
+
 export interface RunConfig {
   benchmarkoor_version?: string
   timestamp: number
@@ -197,6 +230,7 @@ export interface RunConfig {
   metadata?: {
     labels?: Record<string, string>
   }
+  compute?: ComputeRunSummary
 }
 
 // .state-actor/state-actor-manifest.json per run (present only when the run's

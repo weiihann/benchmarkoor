@@ -8,6 +8,7 @@ import { useRunResult } from '@/api/hooks/useRunResult'
 import { useRunOpcodes } from '@/api/hooks/useRunOpcodes'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
+import { ComputeRunDetail } from '@/components/run-detail/ComputeRunDetail'
 import { StateActorConfiguration } from '@/components/run-detail/StateActorConfiguration'
 import { useStateActorManifest } from '@/api/hooks/useStateActorManifest'
 import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
@@ -185,22 +186,24 @@ export function RunDetailPage() {
   // retries of a 404'ing fetch delays the live view unnecessarily.
   const fetchOnDisk = !liveRun
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId, fetchOnDisk)
-  const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId, fetchOnDisk)
-  const { data: suite } = useSuite(config?.suite_hash ?? '')
-  const { data: runOpcodes } = useRunOpcodes(runId, fetchOnDisk)
+  const isComputeRun = config?.compute?.schema_version === 1
+  const legacyArtifactsEnabled = fetchOnDisk && config !== undefined && !isComputeRun
+  const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId, legacyArtifactsEnabled)
+  const { data: suite } = useSuite(isComputeRun ? '' : config?.suite_hash)
+  const { data: runOpcodes } = useRunOpcodes(runId, legacyArtifactsEnabled)
   const { data: index } = useIndex()
   const { data: containerLogHead, isLoading: containerLogLoading } = useQuery({
     queryKey: ['run', runId, 'container-log-head'],
     queryFn: () => fetchHead(`runs/${runId}/container.log`),
-    enabled: !!runId,
+    enabled: !!runId && legacyArtifactsEnabled,
   })
   const { data: benchmarkoorLogHead, isLoading: benchmarkoorLogLoading } = useQuery({
     queryKey: ['run', runId, 'benchmarkoor-log-head'],
     queryFn: () => fetchHead(`runs/${runId}/benchmarkoor.log`),
-    enabled: !!runId,
+    enabled: !!runId && legacyArtifactsEnabled,
   })
-  const { data: blockLogs } = useBlockLogs(runId)
-  const { data: stateActorManifest } = useStateActorManifest(runId, fetchOnDisk)
+  const { data: blockLogs } = useBlockLogs(runId, legacyArtifactsEnabled)
+  const { data: stateActorManifest } = useStateActorManifest(runId, legacyArtifactsEnabled)
 
   const isLoading = liveRunsLoading || configLoading || resultLoading
   const error = configError
@@ -235,10 +238,13 @@ export function RunDetailPage() {
   )
   const pendingDeletion = indexEntry ? isPendingDeletion(indexEntry) : false
 
-  // Compute clientRuns and recentRuns before early returns to satisfy hooks rules.
+  // Compute campaigns carry a workload hash, not an Ethereum suite identity.
+  // Keep suite-derived comparisons off their detail page.
   const clientRuns = useMemo(
-    () => selectClientPeerRuns(index?.entries ?? [], config?.suite_hash, config?.instance.client, config?.instance.id, config?.metadata?.labels),
-    [index, config],
+    () => isComputeRun
+      ? []
+      : selectClientPeerRuns(index?.entries ?? [], config?.suite_hash, config?.instance.client, config?.instance.id, config?.metadata?.labels),
+    [index, config, isComputeRun],
   )
 
   const recentRuns = useMemo(() => {
@@ -441,6 +447,69 @@ export function RunDetailPage() {
   if (!config) {
     return <ErrorState message="Run not found" />
   }
+  if (config.compute?.schema_version === 1) {
+    return (
+      <div className="flex flex-col gap-6">
+        {pendingDeletion && (
+          <div
+            className="flex items-start gap-3 rounded-xs border border-red-200 bg-red-50 px-4 py-3 text-sm/6 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200"
+            role="status"
+          >
+            <Trash2 className="mt-0.5 size-4 shrink-0" />
+            <div className="flex min-w-0 grow flex-col gap-0.5">
+              <span className="font-medium">This run is queued for deletion.</span>
+              <span className="text-red-700 dark:text-red-300">
+                A background worker deletes queued runs in order. This page stops working once the files are gone.
+              </span>
+              {indexEntry?.deletion_error && (
+                <span className="font-mono text-xs/5 text-red-700 dark:text-red-300">
+                  Last attempt failed: {indexEntry.deletion_error}
+                </span>
+              )}
+            </div>
+            {isAdmin && (
+              <button
+                disabled={cancelDeleteRuns.isPending}
+                onClick={() => cancelDeleteRuns.mutate([runId])}
+                className="shrink-0 rounded-sm px-3 py-1 text-sm/6 font-medium text-red-800 ring-1 ring-inset ring-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-200 dark:ring-red-700 dark:hover:bg-red-900/40"
+              >
+                {cancelDeleteRuns.isPending ? 'Cancelling...' : 'Cancel deletion'}
+              </button>
+            )}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/6 text-gray-500 dark:text-gray-400">
+          <Link to="/runs" className="hover:text-gray-700 dark:hover:text-gray-300">Runs</Link>
+          <span>/</span>
+          <span className="truncate text-gray-900 dark:text-gray-100">{runId}</span>
+          {isAdmin && (
+            <button
+              disabled={deleteRuns.isPending || pendingDeletion}
+              onClick={() => {
+                if (!window.confirm('Queue this run for deletion? This cannot be undone.')) return
+                deleteRuns.mutate([runId], {
+                  onSuccess: () => navigate({ to: '/runs' }),
+                })
+              }}
+              className="ml-1 flex shrink-0 items-center justify-center rounded-xs p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              title={pendingDeletion ? 'This run is already queued for deletion' : 'Delete this run'}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
+        </div>
+        <StatusAlert
+          status={config.status}
+          terminationReason={config.termination_reason}
+          containerExitCode={config.container_exit_code}
+          containerOOMKilled={config.container_oom_killed}
+        />
+        <MetadataLabels labels={config.metadata?.labels} />
+        <ComputeRunDetail runId={runId} compute={config.compute} metadata={config.metadata} />
+      </div>
+    )
+  }
+
 
   // Map StepTypeOption[] to IndexStepType[] for the strip
   const indexStepFilter: IndexStepType[] = stepFilter.filter(

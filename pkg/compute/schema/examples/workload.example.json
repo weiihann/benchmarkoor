@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "fork": "Osaka",
+  "generator": {
+    "revision": "ad202d76b52c074ffa9395bd69a72f2a12ad1784",
+    "seed": 20260921
+  },
+  "cases": [
+    {
+      "id": "compute/instruction/test_arithmetic.py__test_add[u_int8-count_1]",
+      "family": "arithmetic",
+      "target_operation": "ADD",
+      "parameters": {
+        "operand_class": "u_int8",
+        "requested_count": 1
+      },
+      "status": "ready",
+      "pre": {
+        "0x7b5a41b2bc1ce4de7c8b1e7b1c4db01c3e9fa111": {
+          "balance": "0x0",
+          "nonce": "0x0",
+          "code": "0x600160010100",
+          "storage": {}
+        },
+        "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+          "balance": "0x100000",
+          "nonce": "0x0",
+          "code": "0x",
+          "storage": {}
+        }
+      },
+      "transactions": [
+        {
+          "sender": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+          "to": "0x7b5a41b2bc1ce4de7c8b1e7b1c4db01c3e9fa111",
+          "data": "0x",
+          "value": "0x0",
+          "gas_limit": 100000
+        }
+      ],
+      "expected": {
+        "receipts": [
+          {
+            "success": true,
+            "logs": []
+          }
+        ],
+        "storage": {}
+      }
+    }
+  ]
+}

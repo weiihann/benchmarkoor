@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workload.schema.json",
+  "title": "Osaka compute workload package (protocol v2)",
+  "description": "Workload exported by execution-specs. Case ids preserve EEST fixture identity. KECCAK256 is the canonical name for opcode 0x20. Precompile cases carry parameters.precompile_address and use PRECOMPILE_<address> diagnostic counters.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "fork", "generator", "cases"],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "fork": { "const": "Osaka" },
+    "generator": { "$ref": "#/$defs/generator" },
+    "cases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/case" } }
+  },
+  "$defs": {
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "seed"],
+      "properties": {
+        "revision": { "type": "string", "minLength": 1 },
+        "seed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "target_operation": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "const": "SHA3" }
+        },
+        "parameters": { "type": ["object", "null"] },
+        "status": { "enum": ["ready", "unsupported"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "pre": {
+          "type": ["object", "null"],
+          "additionalProperties": { "$ref": "#/$defs/account" },
+          "propertyNames": { "pattern": "^0x[0-9a-fA-F]{40}$" }
+        },
+        "transactions": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/transaction" }
+        },
+        "expected": { "$ref": "#/$defs/expected" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "unsupported" } }, "required": ["status"] },
+          "then": { "required": ["reason"] }
+        },
+        {
+          "if": { "properties": { "status": { "const": "ready" } }, "required": ["status"] },
+          "then": {
+            "required": ["family", "target_operation", "parameters", "pre", "transactions", "expected"],
+            "properties": {
+              "parameters": { "type": "object" },
+              "pre": { "type": "object" },
+              "transactions": { "type": "array", "minItems": 1 },
+              "reason": { "maxLength": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["balance", "nonce", "code", "storage"],
+      "properties": {
+        "balance": { "$ref": "#/$defs/hexQuantity" },
+        "nonce": { "$ref": "#/$defs/hexQuantity" },
+        "code": { "$ref": "#/$defs/hexByteString" },
+        "storage": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/hexByteString" },
+          "propertyNames": { "$ref": "#/$defs/hexByteString" }
+        }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sender", "to", "data", "value", "gas_limit"],
+      "properties": {
+        "sender": { "$ref": "#/$defs/address" },
+        "to": { "$ref": "#/$defs/address" },
+        "data": { "$ref": "#/$defs/hexByteString" },
+        "value": { "$ref": "#/$defs/hexQuantity" },
+        "gas_limit": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipts"],
+      "properties": {
+        "receipts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["success", "logs"],
+            "properties": {
+              "success": { "type": "boolean" },
+              "logs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["address", "topics", "data"],
+                  "properties": {
+                    "address": { "$ref": "#/$defs/address" },
+                    "topics": { "type": "array", "items": { "$ref": "#/$defs/word32" } },
+                    "data": { "$ref": "#/$defs/hexByteString" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/$defs/hexByteString" },
+            "propertyNames": { "$ref": "#/$defs/hexByteString" }
+          },
+          "propertyNames": { "pattern": "^0x[0-9a-fA-F]{40}$" }
+        }
+      }
+    },
+    "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "word32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "hexByteString": { "type": "string", "pattern": "^0x(?:[0-9a-fA-F]{2})*$" },
+    "hexQuantity": { "type": "string", "pattern": "^0x[0-9a-fA-F]+$" }
+  }
+}

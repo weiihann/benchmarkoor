@@ -2,6 +2,7 @@ package compute
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -405,8 +406,13 @@ func loadComputeWorkload(path string) (*Workload, []byte, error) {
 		return nil, nil, fmt.Errorf("reading workload: %w", err)
 	}
 	var workload Workload
-	if err := json.Unmarshal(data, &workload); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&workload); err != nil {
 		return nil, nil, fmt.Errorf("parsing workload: %w", err)
+	}
+	if len(bytes.TrimSpace(data[decoder.InputOffset():])) != 0 {
+		return nil, nil, fmt.Errorf("parsing workload: unexpected trailing data")
 	}
 	if err := workload.Validate(); err != nil {
 		return nil, nil, err

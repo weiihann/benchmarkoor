@@ -2,7 +2,6 @@ package compute
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/sha256"
 	"encoding/csv"
 	"encoding/hex"
@@ -110,20 +109,11 @@ func exportGasfitInputs(runDir, attemptDir, configPath string) (*gasfitInputs, e
 }
 
 func readWorkload(path string) (*Workload, error) {
-	data, err := os.ReadFile(path)
+	workload, _, err := loadComputeWorkload(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading workload %q: %w", path, err)
+		return nil, fmt.Errorf("loading workload %q: %w", path, err)
 	}
-	var workload Workload
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&workload); err != nil {
-		return nil, fmt.Errorf("decoding workload %q: %w", path, err)
-	}
-	if err := workload.Validate(); err != nil {
-		return nil, fmt.Errorf("validating workload %q: %w", path, err)
-	}
-	return &workload, nil
+	return workload, nil
 }
 
 func readResults(path string) ([]Result, error) {

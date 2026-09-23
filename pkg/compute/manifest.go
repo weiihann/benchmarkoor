@@ -110,15 +110,14 @@ const (
 )
 
 func computeFixedLimits(cfg *config.ComputeConfig) map[string]any {
-	cap := defaultGeneratorTxGasCap
-	if cfg.Generator != nil && cfg.Generator.TxGasCap != 0 {
-		cap = cfg.Generator.TxGasCap
+	limits := map[string]any{"osaka_tx_gas_cap": maxOsakaTransactionGas}
+	// Pre-generated workloads do not declare the generator's configured cap.
+	// Their transaction allowances remain available in the workload artifact.
+	if cfg.Generator != nil {
+		limits["generator_tx_gas_cap"] = generatorTxGasCap(cfg.Generator)
 	}
 
-	return map[string]any{
-		"generator_tx_gas_cap": cap,
-		"osaka_tx_gas_cap":     maxOsakaTransactionGas,
-	}
+	return limits
 }
 
 func generatorConfigPath(cfg *config.ComputeConfig) string {

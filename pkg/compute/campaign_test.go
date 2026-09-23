@@ -167,11 +167,40 @@ func TestComputeManifestSeparatesComparisonFactorsFromRunProvenance(t *testing.T
 	assert.Equal(t, selection, workloadFactors["resolved_selection"])
 	assert.Equal(
 		t,
-		computeFixedLimits(cfg),
+		map[string]any{"osaka_tx_gas_cap": uint64(16_777_216)},
 		workloadFactors["fixed_limits"],
 	)
 	gasSchedule := first.ComparisonFactors["gas_schedule"].(map[string]any)
 	identity := gasSchedule["active_schedule_identity"].(map[string]string)
 	assert.Equal(t, "unavailable", identity["status"])
 	assert.NotEmpty(t, identity["reason"])
+}
+
+func TestWorkloadSelectionPreservesLargeInputParameters(t *testing.T) {
+	const operand = "115792089237316195423570985008687907853269984665640564039457584007908834671663"
+	workload := baseWorkload()
+	workload.Cases[0].Parameters["source_parameters"] = map[string]any{
+		"opcode_args": []json.Number{json.Number(operand)},
+	}
+	data, err := json.Marshal(workload)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "workload.json")
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+
+	loaded, _, err := loadComputeWorkload(path)
+	require.NoError(t, err)
+	selection, err := json.Marshal(workloadSelection(loaded))
+	require.NoError(t, err)
+	var recorded struct {
+		Cases []struct {
+			Parameters struct {
+				SourceParameters struct {
+					OpcodeArgs []json.Number `json:"opcode_args"`
+				} `json:"source_parameters"`
+			} `json:"parameters"`
+		} `json:"cases"`
+	}
+	require.NoError(t, json.Unmarshal(selection, &recorded))
+	require.Len(t, recorded.Cases, 1)
+	assert.Equal(t, []json.Number{json.Number(operand)}, recorded.Cases[0].Parameters.SourceParameters.OpcodeArgs)
 }

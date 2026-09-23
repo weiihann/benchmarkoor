@@ -2,6 +2,11 @@
 
 Date: 2026-09-22.
 
+> Historical handoff: the current pricing evaluation is the
+> [600 Mgas/s recommendation report](compute-gas-pricing-600m.md).
+> This snapshot retains the earlier 500 Mgas/s assumption and implementation
+> status; do not treat those sections as the current campaign result.
+
 ## 1. Goal and user decisions
 
 Continue developing and running a reproducible compute gas-calibration pipeline:
@@ -220,6 +225,20 @@ dirty state, and lockfile hashes. The repository Dockerfile uses the same
 CGO-disabled build approach.
 
 ### Real installation smoke
+
+The pinned evm2 checkout ignores `Cargo.lock`; a fresh clone does not contain it.
+Generate it once with the worker's Rust toolchain before the smoke build:
+
+```bash
+test -f "$ROOT/evm2/Cargo.lock" || docker run --rm \
+  -v "$ROOT/evm2:/src" -w /src rust:1.96.0-bookworm \
+  cargo generate-lockfile
+```
+
+Keep this lockfile for subsequent builds. Archive it with the new campaign;
+the manifest records its hash even though Git ignores it. Initial dependency
+resolution can differ from the previous machine. The worker build must retain
+`--locked` so it cannot silently change that resolution.
 
 ```bash
 export COMPUTE_SMOKE_RESULTS_DIR="$ROOT/benchmarkoor/results/setup-smoke-$(date -u +%Y%m%dT%H%M%SZ)"

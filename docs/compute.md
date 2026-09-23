@@ -7,8 +7,9 @@ pipeline does not reimplement workload generation, EVM execution, or modeling.
 The campaign is compute-only. It does not change gas constants, recommend a
 block gas limit, or price memory, storage, state growth, or network capacity.
 
-For pinned sources, fresh-generation recipes, new-machine setup, and remaining
-glue-pricing work, see the [self-contained handoff document](compute-handoff.md).
+For the completed 600 Mgas/s evaluation, proposed prices, qualification limits,
+and evidence, see the [gas-pricing report](compute-gas-pricing-600m.md).
+The [historical handoff](compute-handoff.md) retains the earlier setup plan.
 
 ## Eligible workloads
 
@@ -24,6 +25,11 @@ A campaign may select a subset. Dedicated memory, storage, account-access,
 contract-lifecycle, block-access-list, scenario, stateful, and post-Osaka cases
 are excluded. A selected case that cannot produce a fixed-work native workload
 remains in `workload.json` with `status: unsupported` and a reason.
+
+Supporting calibration uses an explicit `parameters.campaign_role: calibration`
+lane and a separate generator allowlist. It does not expand the priced target
+allowlist. Targets and supporting cases share the frozen capture schedule, but
+calibration rows are excluded from target-pricing models.
 
 `KECCAK256` is the canonical operation name. Precompile counts use
 `PRECOMPILE_<20-byte-address>` keys, so P256VERIFY is counted as
@@ -130,6 +136,18 @@ held-out-session checks. The analysis status is `succeeded`, `inconclusive`, or
 The default example is anchorless. It compares measured slopes with the Osaka
 gas table but does not claim an official calibration. Pricing scenarios require
 an explicit positive gas-per-second anchor and margin policy.
+
+The coordinated pricing operator is `scripts/compute/pricing_campaign.py`.
+It stages inventory, supporting calibration, target count grids, corpus assembly,
+and capture configuration. The gasfit `recommendations` CLI creates the model
+configuration and builds per-variant and per-group pricing evidence from archived
+reports. It reads the analysis's embedded, hash-verified configuration rather than
+following an old container-local path.
+
+Isolated-cost and whole-workload-budget recommendations have separate coverage
+and qualification decisions. A raw workload slope is not an isolated opcode
+cost, and a candidate supported by only some variants is not a complete
+group-wide recommendation.
 
 ## Artifacts
 

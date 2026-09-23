@@ -1,12 +1,13 @@
 # Osaka evm2 compute benchmark pipeline
 
-Date: 2026-09-22
+Date: 2026-09-23
 
 ## Goal
 
-Build a reproducible pipeline that exports fixed-work Osaka compute workloads
-from execution-specs, executes them with evm2, records repeated measurements,
-and analyzes the archived results with evm-gasfit.
+Repeat the completed standalone Osaka EVM2 compute campaign on a second machine,
+preserving the first machine's data and using the same frozen workload, executable
+images, controller, sample schedule, and analysis settings. Compare the two
+machines before deciding how to proceed with compute gas-schedule changes.
 
 Benchmarkoor owns orchestration and artifacts. execution-specs owns workload
 construction and independent expected outcomes. evm2 owns execution and
@@ -15,18 +16,35 @@ not copy its modeling logic.
 
 ## Current handoff
 
-The local 2026-09-22 full-corpus run is an execution and measurement trial, not
-a finished glue-adjusted gas proposal. The user will repeat the campaign on a
-different reference machine. The working calibration is 500 million gas/second.
-The full trial kept glue disabled; required CALLDATASIZE, MLOAD, and STATICCALL
-calibration drivers are absent. Do not enable glue blindly or call the existing
-`WORKLOAD_*` slopes isolated opcode prices.
+The completed 2026-09-22 campaign used **600 million gas/second** (0.6 gas/ns),
+zero discretionary margin, no decreases, and a qualified lower-bound discrepancy
+of at least 2× to trigger an increase. It captured 127,228 terminal records:
+127,224 executed and correctness-passing samples plus four unsupported cases.
+Of 433 runnable target variants, 403 raw workload models qualified on that host.
+All isolated, supporting-cost-adjusted estimates were withheld. Nine provisional
+precompile-parameter increases came from the separate whole-workload budget
+analysis. Production gas constants remain unchanged.
 
-Read [the fresh-machine handoff](docs/compute-handoff.md) for pinned source
-commits, fresh-generation recipes, tested setup commands, and the remaining work.
-Transfer only that Markdown document; it contains the required context.
-There is no accompanying context bundle. Do not transfer or analyze old results,
-diagnostics, host manifests, reports, or pre-generated workloads on the new machine.
+Read [the second-machine handoff](docs/compute-handoff.md) for the transfer,
+configuration, smoke, full capture, analysis, and verification procedure.
+Read [the methodology](METHODOLOGY.md) for the experimental design and
+[the first-machine report](docs/compute-gas-pricing-600m.md) for baseline results.
+
+The older 500M gas/s, document-only transfer, fresh-generation, and glue-disabled
+instructions are superseded. Transfer the frozen corpus, analysis inputs,
+controller binary, exact container images, and first-machine archive. A fresh
+clone at the base source revisions cannot reproduce the local changes or ignored
+lockfiles. Do not substitute rebuilt images or newly generated workloads for an
+exact hardware comparison.
+
+On the second machine, generate fresh diagnostics and all pilot, warmup, and
+qualification measurements in a new output directory. Keep the transferred
+first-machine archive unchanged and out of the second machine's timing fits.
+Adapt host paths and CPU affinity deliberately; retain the 24 GiB/no-swap worker
+limit and all experimental settings. Record any unavoidable deviation rather
+than silently claiming an exact replay. The second-machine run is planned, not
+yet completed. Do not choose a cross-machine aggregation rule or finalize gas
+changes before reviewing both datasets.
 
 ## Scope
 
@@ -39,8 +57,9 @@ Dedicated memory, storage, account-access, contract-lifecycle, block-access-list
 scenario, and stateful benchmarks are excluded. Unsupported selected cases stay
 in `workload.json` with an explicit reason.
 
-The milestone measures standalone evm2. It does not integrate NewL1, change gas
-constants, recommend a block gas limit, or price non-compute resources.
+The campaign measures standalone evm2. It does not integrate NewL1 or Reth,
+enable JIT, change gas constants, recommend a block gas limit, or price
+non-compute resources.
 
 ## Contracts
 
@@ -68,23 +87,30 @@ results carry an explicit stage and message.
 
 A campaign freezes its sample schedule before execution. Each qualification
 session uses a fresh worker process and restores the declared baseline before
-each sample. The manifest records source revisions and dirty-state evidence,
-lockfile hashes, workload identity, image identities, hardware and resource
-controls, execution boundary, Osaka gas-table selection, and analysis policy.
+each sample. The manifest records workload and image identities, hardware and
+resource controls, execution boundary, and analysis policy. A binary/image replay
+retains original source provenance separately; it must not pretend that an absent
+local source checkout was inspected. The worker's active gas-schedule fingerprint
+is unavailable, so native comparisons requiring that field remain blocked.
 
 Only correct `qualification` rows are eligible for fitting. Session identifiers
-are preserved for cluster bootstrap and held-out-session checks. Analysis is
-anchorless unless the operator supplies an explicit gas-per-second anchor and
-margin policy.
+are preserved for cluster bootstrap and held-out-session checks. Analyze each
+host independently using the frozen 600M policy. Do not merge equal-named sessions
+from different hosts, copy first-host coefficients into the new analysis, or
+relax failed qualification gates.
 
 ## Acceptance
 
-- A real execution-specs Osaka export produces ready fixed-count workloads.
-- evm2 executes ADD, KECCAK256, and Osaka P256VERIFY cases with independent
-  receipt, log, and storage checks.
-- Diagnostic counts match the selected semantic target.
-- Timed rows carry positive durations and omit diagnostic counters.
-- Benchmarkoor archives raw requests, results, manifest, gasfit inputs, and
-  gasfit outputs without mutating source artifacts.
-- The finite smoke campaign completes through generator, evm2 worker, and
-  evm-gasfit analyzer.
+- Verify transferred file checksums, image IDs, controller digest, and the frozen
+  workload SHA-256 before running.
+- Pass the archived mixed-lane smoke with fresh second-host measurements.
+- Capture all 2,232 runnable cases and four unsupported records with eight
+  sessions, one pilot, one warmup, and five qualification repetitions.
+- Reconcile all 127,228 requested samples, phase counts, session exits, correctness
+  results, and per-case identities; retain failures instead of silently retrying.
+- Verify diagnostic target/opcode counts, charged gas, and execution commitments
+  against the first host; timed samples must omit diagnostic counters.
+- Retain separate immutable capture and analysis artifacts for both machines.
+  Statistical qualification counts and proposed prices may differ by host.
+- Return both datasets and host metadata for comparison. A completed capture or
+  successful smoke is not approval to change the production gas schedule.

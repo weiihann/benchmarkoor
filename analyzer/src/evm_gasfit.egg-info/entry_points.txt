@@ -1,0 +1,2 @@
+[console_scripts]
+evm-gasfit = evm_gasfit.cli:main

@@ -1,0 +1,239 @@
+"""End-to-end: multiple model specs, model_by grouping, multi-feature fit.
+
+Exercises the harder shapes:
+
+- A spec with `target_operation_param` (target opcode varies per fixture) +
+  `model_by` (one fit per param value).
+- A spec with `target_operation` (literal target opcode) + `model_by`.
+- A spec with multi-feature `model_params` (`target_coef` plus an extra
+  param-keyed coefficient), verifying both coefficients are recovered.
+- Figure naming + per-segment sanitization on the `__`-joined slug.
+- Winning-row provenance: every field on a `new_gas.csv` row is copied
+  verbatim from the source `new_gas_all_params.csv` row.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+import pytest
+from _data_synth import (
+    ClientModel,
+    base_config,
+    cross_product_fixtures,
+    run_pipeline,
+    write_standard_inputs,
+)
+
+
+def test_multi_model_with_target_param_and_groups(tmp_path: Path) -> None:
+    # (a) varying target via param: opcode ∈ {ADD, SUB, MUL}, model_by=opcode.
+    arith_fixtures = cross_product_fixtures(
+        test_file="test_arithmetic",
+        test_name="test_arithmetic",
+        param_grid={"opcode": ["ADD", "SUB", "MUL"]},
+        target_opcode_for={
+            (("opcode", "ADD"),): "ADD",
+            (("opcode", "SUB"),): "SUB",
+            (("opcode", "MUL"),): "MUL",
+        },
+        extra_opcount_per_million={"POP": 500_000},
+    )
+    # (b) literal target BALANCE, model_by=cache_strategy, two strategies.
+    access_fixtures = cross_product_fixtures(
+        test_file="test_account_access",
+        test_name="test_account_access",
+        param_grid={"cache_strategy": ["NO_CACHE", "HOT"]},
+        target_opcode_for="BALANCE",
+        target_opcount_per_million=800_000,
+        extra_opcount_per_million={"POP": 400_000},
+    )
+
+    fixtures = arith_fixtures + access_fixtures
+    clients = ("geth", "besu")
+    models = {
+        "geth": ClientModel(intercept=80.0, slope=1.2e-5),
+        "besu": ClientModel(intercept=110.0, slope=1.8e-5),
+    }
+    config = base_config(
+        plots=True,
+        models_custom=[
+            {
+                "test_name": "test_arithmetic",
+                "target_operation_param": "opcode",
+                "model_by": "opcode",
+                "model_params": {"target_coef": "OPCODE_GENERIC"},
+            },
+            {
+                "test_name": "test_account_access",
+                "target_operation": "BALANCE",
+                "model_by": "cache_strategy",
+                "model_params": {"target_coef": "GAS_WARM_ACCESS"},
+            },
+        ],
+        new_params={"OPCODE_GENERIC": None, "GAS_WARM_ACCESS": None},
+    )
+    config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
+        tmp_path,
+        fixtures=fixtures,
+        models=models,
+        config=config,
+        noise_pct=0.005,
+        seed=7,
+    )
+    run_pipeline(config_yaml, runtimes_csv, opcounts_json, out_dir)
+
+    # ---- results.csv has one row per (spec, group, client) --------------
+    results = pd.read_csv(out_dir / "results.csv")
+    # (3 opcode groups + 2 cache_strategy groups) × 2 clients = 10 rows.
+    assert len(results) == 10
+    assert set(results["client_name"]) == set(clients)
+    assert set(results["target_opcode"]) == {"ADD", "SUB", "MUL", "BALANCE"}
+    assert {"param_opcode", "param_cache_strategy"}.issubset(results.columns)
+
+    for _, row in results.iterrows():
+        recovered = float(row["target_coef_runtime_ms"])
+        expected = models[row["client_name"]].slope
+        assert recovered == pytest.approx(expected, rel=0.05), (
+            f"client={row['client_name']} test={row['test_name']} "
+            f"target={row['target_opcode']}: slope {recovered} not ~{expected}"
+        )
+
+    # ---- figures written under figs/runtime/, named correctly -----------
+    runtime_figs_dir = out_dir / "figs" / "runtime"
+    runtime_figs = list(runtime_figs_dir.glob("*.png"))
+    assert runtime_figs, "expected PNGs under figs/runtime/ when plots: true"
+
+    # Filename convention: <target>__<test_name>__<model_by_combo>__<client>__<family>.png.
+    families = {"regression", "bootstrap", "diagnostics"}
+    for png in runtime_figs:
+        segments = png.stem.split("__")
+        assert len(segments) == 5, f"filename {png.name} did not split into 5 segments"
+        target_seg, test_seg, _combo_seg, client_seg, family_seg = segments
+        assert client_seg in clients
+        assert family_seg in families
+        assert test_seg in {"test_arithmetic", "test_account_access"}
+        assert target_seg in {"ADD", "SUB", "MUL", "BALANCE"}
+
+    # Spot-check: each family exists for ADD/geth (model_by_combo == "ADD").
+    for fam in families:
+        path = runtime_figs_dir / f"ADD__test_arithmetic__ADD__geth__{fam}.png"
+        assert path.exists(), f"missing figure {path.name}"
+
+    report = (out_dir / "runtime_estimation_autogenerated_report.md").read_text()
+    assert "figs/runtime/" in report and ".png" in report
+
+    # ---- new_gas.csv: both gas params, max-across-clients ---------------
+    new_gas = pd.read_csv(out_dir / "new_gas.csv")
+    assert {"OPCODE_GENERIC", "GAS_WARM_ACCESS"}.issubset(set(new_gas["gas_param"]))
+    for gp in ("OPCODE_GENERIC", "GAS_WARM_ACCESS"):
+        # besu has the larger slope → besu wins worst-case for both params.
+        row = new_gas[new_gas["gas_param"] == gp].iloc[0]
+        assert row["client_name"] == "besu"
+
+    # ---- new_gas_all_params.csv carries every per-client candidate fit --
+    new_gas_all = pd.read_csv(out_dir / "new_gas_all_params.csv")
+    target_params = ["OPCODE_GENERIC", "GAS_WARM_ACCESS"]
+    # OPCODE_GENERIC: 3 opcode groups × 2 clients = 6; GAS_WARM_ACCESS:
+    # 2 cache_strategy groups × 2 clients = 4. All candidates are kept now,
+    # not just the per-client winners.
+    assert int(new_gas_all["gas_param"].isin(target_params).sum()) == 10
+    # Exactly one winner per (gas_param, client): 2 params × 2 clients = 4.
+    winners = new_gas_all[new_gas_all["is_winner"].eq(True)]
+    assert int(winners["gas_param"].isin(target_params).sum()) == 4
+
+    # ---- winning-row provenance: copy verbatim from a single source row -
+    provenance_cols = [
+        "client_name",
+        "runtime_ms",
+        "conf_int_low",
+        "conf_int_high",
+        "selected_test",
+        "selected_opcode",
+        "selected_model_coef_name",
+    ]
+    model_by_cols = [
+        c for c in ("param_opcode", "param_cache_strategy") if c in new_gas.columns
+    ]
+    for gp in target_params:
+        win = new_gas[new_gas["gas_param"] == gp].iloc[0]
+        candidates = new_gas_all[new_gas_all["gas_param"] == gp]
+        mask = pd.Series(True, index=candidates.index)
+        for col in provenance_cols + model_by_cols:
+            win_val = win[col]
+            col_vals = candidates[col]
+            if pd.isna(win_val):
+                mask &= col_vals.isna()
+            else:
+                mask &= col_vals.astype(object) == win_val
+        matched = candidates[mask]
+        assert len(matched) == 1, (
+            f"expected exactly one provenance row for {gp}, got {len(matched)}"
+        )
+
+
+def test_multi_feature_regression_recovers_extra_coefficient(tmp_path: Path) -> None:
+    """A multi-feature spec recovers both `target_coef` and the extra param coefficient.
+
+    The fit is `runtime = intercept + target_coef·opcount + x·opcount·value_sent`;
+    the extra coefficient lands on results.csv as `<param>_runtime_ms`.
+    """
+    fixtures = cross_product_fixtures(
+        test_file="test_storage_set",
+        test_name="test_storage_set",
+        param_grid={"value_sent": ["1", "5", "10"]},
+        target_opcode_for="SSTORE",
+        target_opcount_per_million=500_000,
+    )
+    true_slope = 1.0e-5
+    true_value_sent_coef = 2.0e-6
+    models = {
+        "geth": ClientModel(
+            intercept=50.0,
+            slope=true_slope,
+            extra_coefs={"value_sent": true_value_sent_coef},
+        )
+    }
+    config = base_config(
+        models_custom=[
+            {
+                "test_name": "test_storage_set",
+                "target_operation": "SSTORE",
+                "model_params": {
+                    "target_coef": "COLD_STORAGE_WRITE",
+                    "value_sent": "STORAGE_WRITE_PER_VALUE",
+                },
+            }
+        ],
+        new_params={"STORAGE_WRITE_PER_VALUE": None},
+    )
+    config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
+        tmp_path,
+        fixtures=fixtures,
+        models=models,
+        config=config,
+        noise_pct=0.002,
+        seed=11,
+    )
+    run_pipeline(config_yaml, runtimes_csv, opcounts_json, out_dir)
+
+    results = pd.read_csv(out_dir / "results.csv")
+    assert len(results) == 1
+    row = results.iloc[0]
+
+    assert float(row["target_coef_runtime_ms"]) == pytest.approx(true_slope, rel=0.05)
+    assert "value_sent_runtime_ms" in results.columns
+    assert float(row["value_sent_runtime_ms"]) == pytest.approx(
+        true_value_sent_coef, rel=0.05
+    )
+    assert {
+        "value_sent_pvalue",
+        "value_sent_conf_int_low",
+        "value_sent_conf_int_high",
+    }.issubset(results.columns)
+
+    new_gas = pd.read_csv(out_dir / "new_gas.csv")
+    assert {"COLD_STORAGE_WRITE", "STORAGE_WRITE_PER_VALUE"}.issubset(
+        set(new_gas["gas_param"])
+    )

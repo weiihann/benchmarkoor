@@ -1,0 +1,12 @@
+pydantic>=2.0
+pyyaml
+pandas
+numpy
+scipy
+matplotlib
+seaborn
+statsmodels
+mdutils
+
+[specs]
+ethereum-execution

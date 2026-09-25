@@ -249,6 +249,26 @@ def test_dynamic_precompile_metadata_never_defaults_to_zero_pairs() -> None:
         assert info.current_charge_gas is None
 
 
+def test_precompile_address_prices_a_staticcall_targeted_case() -> None:
+    info = rec.classify_variant(
+        "t/b.py::test_blake2f_uncachable[fork_Osaka--num_rounds_12]",
+        [
+            _case(
+                "x",
+                "precompile",
+                "STATICCALL",
+                parameters={
+                    "precompile_address": "0x0000000000000000000000000000000000000009",
+                    "target_count_key": "PRECOMPILE_0x0000000000000000000000000000000000000009",
+                },
+            )
+        ],
+    )
+    assert info.pricing_group == "PRECOMPILE_BLAKE2F"
+    assert info.current_charge_gas == 12
+    assert info.target_operation == "STATICCALL"
+
+
 def test_exported_transaction_data_resolves_pairing_and_msm_lengths() -> None:
     pair_case = _case("x", "precompile", "BN128_PAIRING")
     pair_case["transactions"] = [{"data": "0x" + "00" * 192}]

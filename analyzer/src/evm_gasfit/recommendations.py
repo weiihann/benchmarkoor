@@ -210,6 +210,9 @@ PRECOMPILE_ADDRESSES: dict[str, str] = {
     "BLS12_MAP_FP2_TO_G2": "0x0000000000000000000000000000000000000011",
     "P256VERIFY": "0x0000000000000000000000000000000000000100",
 }
+_PRECOMPILE_BY_ADDRESS: dict[str, str] = {
+    address.lower(): name for name, address in PRECOMPILE_ADDRESSES.items()
+}
 
 # BLS12-381 MSM discount tables (per-mille), transcribed from
 # src/ethereum/forks/osaka/vm/precompiled_contracts/bls12_381/__init__.py
@@ -778,6 +781,11 @@ def classify_variant(
         count_key=first.get("parameters", {}).get("target_count_key"),
     )
     op = info.target_operation or ""
+    # A precompile case is priced as the precompile it calls: some tests (the
+    # uncachable BLAKE2F variants) declare the calling STATICCALL as their
+    # target, while precompile_address names what the counted work is.
+    address = str(first.get("parameters", {}).get("precompile_address") or "").lower()
+    op = _PRECOMPILE_BY_ADDRESS.get(address, op)
     tokens = _tokens(variant_id)
     src = _case_source(first)
     test_name = variant_id.split("::")[-1].split("[")[0]

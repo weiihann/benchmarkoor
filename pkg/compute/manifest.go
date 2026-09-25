@@ -59,6 +59,8 @@ func buildComputeManifest(
 	resourceLimits *docker.ResourceLimits,
 ) computeManifest {
 	hardware, hostProvenance := hostFacts(resourceLimits)
+	// cfg.Validate has already restricted Engine to a known value.
+	boundary := engineBoundaries[cfg.Engine]
 	workloads := map[string]any{
 		"sha256":             workloadSHA,
 		"original_selection": selection,
@@ -70,13 +72,14 @@ func buildComputeManifest(
 		"transaction_gas_limit": maxOsakaTransactionGas,
 		"active_schedule_identity": map[string]string{
 			"status": "unavailable",
-			"reason": "evm2 worker protocol does not expose a gas-schedule identity",
+			"reason": "the worker protocol does not expose a gas-schedule identity",
 		},
 	}
 	return computeManifest{
 		SchemaVersion: computeManifestSchemaVersion,
 		CreatedAt:     time.Now().UTC(),
 		Software: map[string]any{
+			"engine":  cfg.Engine,
 			"images":  images,
 			"runtime": cfg.ContainerRuntime,
 		},
@@ -85,15 +88,15 @@ func buildComputeManifest(
 		ComparisonFactors: map[string]any{
 			"hardware":           hardware,
 			"workload":           workloads,
-			"execution_boundary": computeExecutionBoundary,
+			"execution_boundary": boundary,
 			"gas_schedule":       gasSchedule,
 		},
-		Boundary:    computeExecutionBoundary,
+		Boundary:    boundary,
 		GasSchedule: gasSchedule,
 		Phase:       phasePlan,
 		Ordering:    map[string]any{"seed": cfg.Seed, "algorithm": "math/rand/v2 PCG Fisher-Yates"},
 		Policy: map[string]any{
-			"baseline":                 "fresh evm2 process and worker-restored baseline for every requested sample",
+			"baseline":                 "fresh worker process and worker-restored baseline for every requested sample",
 			"qualification_adaptation": false,
 			"generator_config_path":    generatorConfigPath(cfg),
 			"workload_artifact_path":   workloadPath,
@@ -104,7 +107,6 @@ func buildComputeManifest(
 }
 
 const (
-	computeExecutionBoundary = ExecutionBoundary
 	maxOsakaTransactionGas   = uint64(1 << 24)
 	defaultGeneratorTxGasCap = uint64(15_000_000)
 )

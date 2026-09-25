@@ -1,12 +1,13 @@
 // Package compute defines the canonical versioned file/JSON contract used by
 // the Osaka strictly-compute benchmark pipeline: workload packages exported
-// by the execution-specs generator, sample requests handed to the evm2
-// execution worker (evm2-bench --request <request.json> --output
-// <samples.jsonl>), and the per-sample JSONL results that worker emits.
+// by the execution-specs generator, sample requests handed to the execution
+// worker of the configured engine (evm2-bench or newl1-bench, both invoked as
+// --request <request.json> --output <samples.jsonl>), and the per-sample
+// JSONL results those workers emit.
 //
 // The Go types are the normative definition of the protocol's field names.
 // Matching JSON Schemas and examples live under schema/ so the Python
-// generator and the Rust worker bind identical names. The Validate methods
+// generator and the Rust workers bind identical names. The Validate methods
 // enforce what JSON Schemas cannot express (identity uniqueness, receipt and
 // transaction count agreement, cross-field references, contradictory result
 // states) plus the shared vocabulary and encoding rules.
@@ -54,6 +55,7 @@ package compute
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -65,14 +67,69 @@ const (
 
 	// SupportedFork is the fork the compute milestone measures.
 	SupportedFork = "Osaka"
-
-	// SupportedClient is the execution engine measured by this pipeline.
-	SupportedClient = "evm2"
-	// ExecutionBoundary names the timed boundary: evm2 transaction validation,
-	// execution, settlement, and state commit. Workload parsing, baseline
-	// restoration, EVM construction, and correctness checks remain outside it.
-	ExecutionBoundary = "evm2_transaction_execution"
 )
+
+// Execution engines this pipeline can measure. A campaign selects exactly
+// one; every result it reconciles must report that engine's boundary.
+const (
+	// EngineEvm2 is the evm2 Rust EVM reimplementation.
+	EngineEvm2 = "evm2"
+	// EngineNewL1 is the BNB Chain NewL1 production block executor.
+	EngineNewL1 = "newl1"
+)
+
+// Execution boundaries, one per engine.
+const (
+	// BoundaryEvm2TransactionExecution names the evm2 timed boundary:
+	// transaction validation, execution, settlement, and state commit.
+	// Workload parsing, baseline restoration, EVM construction, and
+	// correctness checks remain outside it.
+	BoundaryEvm2TransactionExecution = "evm2_transaction_execution"
+	// BoundaryNewL1BlockExecution names the NewL1 timed boundary: one
+	// production block executing all of a case's transactions through the
+	// NewL1 block executor. Workload parsing, prestate preparation, baseline
+	// restoration, and correctness checks remain outside it.
+	BoundaryNewL1BlockExecution = "newl1_block_execution"
+)
+
+// engineBoundaries is the single source of truth binding each engine to the
+// boundary its worker must report.
+var engineBoundaries = map[string]string{
+	EngineEvm2:  BoundaryEvm2TransactionExecution,
+	EngineNewL1: BoundaryNewL1BlockExecution,
+}
+
+// ValidEngines returns the engines a compute campaign can measure, sorted.
+func ValidEngines() []string {
+	engines := make([]string, 0, len(engineBoundaries))
+	for engine := range engineBoundaries {
+		engines = append(engines, engine)
+	}
+	sort.Strings(engines)
+	return engines
+}
+
+// ExecutionBoundaryForEngine returns the boundary a campaign running the
+// engine must observe in every result.
+func ExecutionBoundaryForEngine(engine string) (string, error) {
+	boundary, ok := engineBoundaries[engine]
+	if !ok {
+		return "", fmt.Errorf("compute: unknown engine %q (want one of %s)", engine, strings.Join(ValidEngines(), ", "))
+	}
+	return boundary, nil
+}
+
+// EngineForExecutionBoundary reverses the engine mapping. Boundaries are
+// unique per engine, so archived manifests recorded before the explicit
+// engine field remain attributable.
+func EngineForExecutionBoundary(boundary string) (string, error) {
+	for engine, engineBoundary := range engineBoundaries {
+		if engineBoundary == boundary {
+			return engine, nil
+		}
+	}
+	return "", fmt.Errorf("compute: unknown execution boundary %q", boundary)
+}
 
 // Workload case status values.
 const (
@@ -150,14 +207,18 @@ type Account struct {
 	Storage map[string]string `json:"storage"`
 }
 
-// Transaction is recovered transaction intent. The worker constructs an evm2
-// transaction using the declared sender and the account nonce from prestate.
+// Transaction is recovered transaction intent. The worker constructs an
+// engine transaction using the declared sender and the account nonce from
+// prestate. SecretKey optionally carries the EEST test key of the sender so
+// block-building engines can sign the transaction themselves; evm2 accepts
+// and ignores it, NewL1 requires it and verifies it derives the sender.
 type Transaction struct {
-	Sender   string `json:"sender"`
-	To       string `json:"to"`
-	Data     string `json:"data"`
-	Value    string `json:"value"`
-	GasLimit uint64 `json:"gas_limit"`
+	Sender    string `json:"sender"`
+	SecretKey string `json:"secret_key,omitempty"`
+	To        string `json:"to"`
+	Data      string `json:"data"`
+	Value     string `json:"value"`
+	GasLimit  uint64 `json:"gas_limit"`
 }
 
 // ExpectedOutcomes is the independently calculated oracle for a case,
@@ -337,6 +398,9 @@ func (c *WorkloadCase) validate() error {
 		if !validAddress(tx.Sender) {
 			return fmt.Errorf("compute: workload case %q: transaction %d sender %q is not a 0x-prefixed 20-byte address", c.ID, i, tx.Sender)
 		}
+		if tx.SecretKey != "" && !validWord(tx.SecretKey) {
+			return fmt.Errorf("compute: workload case %q: transaction %d secret_key %q is not a 0x-prefixed 32-byte secp256k1 key", c.ID, i, tx.SecretKey)
+		}
 		if !validAddress(tx.To) {
 			return fmt.Errorf("compute: workload case %q: transaction %d recipient %q is not a 0x-prefixed 20-byte address", c.ID, i, tx.To)
 		}
@@ -503,8 +567,11 @@ func (res *Result) Validate() error {
 	if !validPhase(res.Phase) {
 		return fmt.Errorf("compute: result %q has unknown phase %q", res.SampleID, res.Phase)
 	}
-	if res.ExecutionBoundary != ExecutionBoundary {
-		return fmt.Errorf("compute: result %q execution_boundary %q is not the required boundary %q", res.SampleID, res.ExecutionBoundary, ExecutionBoundary)
+	if !validExecutionBoundary(res.ExecutionBoundary) {
+		return fmt.Errorf(
+			"compute: result %q execution_boundary %q is not a known boundary (%s)",
+			res.SampleID, res.ExecutionBoundary, strings.Join(ValidBoundaries(), ", "),
+		)
 	}
 
 	switch res.Status {
@@ -588,6 +655,44 @@ func (res *Result) Validate() error {
 		return fmt.Errorf("compute: result %q: opcode_counts key %q must use the canonical name KECCAK256", res.SampleID, "SHA3")
 	}
 	return nil
+}
+
+// ValidateForEngine checks the result and requires its execution_boundary to
+// be the given campaign engine's boundary. Parsing a worker session with it
+// keeps a result from being reconciled by a campaign of another engine.
+func (res *Result) ValidateForEngine(engine string) error {
+	boundary, err := ExecutionBoundaryForEngine(engine)
+	if err != nil {
+		return err
+	}
+	if err := res.Validate(); err != nil {
+		return err
+	}
+	if res.ExecutionBoundary != boundary {
+		return fmt.Errorf(
+			"compute: result %q execution_boundary %q is not the %s campaign boundary %q",
+			res.SampleID, res.ExecutionBoundary, engine, boundary,
+		)
+	}
+	return nil
+}
+
+// validExecutionBoundary reports whether the boundary is one this protocol
+// defines, independent of the campaign's engine.
+func validExecutionBoundary(boundary string) bool {
+	_, err := EngineForExecutionBoundary(boundary)
+	return err == nil
+}
+
+// ValidBoundaries returns every execution boundary the protocol defines,
+// sorted.
+func ValidBoundaries() []string {
+	boundaries := make([]string, 0, len(engineBoundaries))
+	for _, boundary := range engineBoundaries {
+		boundaries = append(boundaries, boundary)
+	}
+	sort.Strings(boundaries)
+	return boundaries
 }
 
 func validPhase(phase string) bool {

@@ -96,7 +96,7 @@ func baseResult() *Result {
 		Phase:               PhaseDiagnostic,
 		Status:              ResultStatusExecuted,
 		ExecutionDurationNS: u64(482135000),
-		ExecutionBoundary:   ExecutionBoundary,
+		ExecutionBoundary:   BoundaryEvm2TransactionExecution,
 		BaselineHash:        strPtr(baselineHex),
 		PreparedHash:        strPtr(preparedHex),
 		CommitmentHash:      strPtr(commitHex),
@@ -401,7 +401,7 @@ func TestResultValidateAcceptsValidResults(t *testing.T) {
 			CaseID:            modCaseID,
 			Phase:             PhasePilot,
 			Status:            ResultStatusUnsupported,
-			ExecutionBoundary: ExecutionBoundary,
+			ExecutionBoundary: BoundaryEvm2TransactionExecution,
 			Error:             &ResultError{Stage: "workload", Message: "case marked unsupported by generator: data-dependent MOD has no fixed-count variant"},
 		}
 		assert.NoError(t, res.Validate())
@@ -476,7 +476,7 @@ func TestResultValidateRejectsContradictoryUnsupportedResults(t *testing.T) {
 			CaseID:            modCaseID,
 			Phase:             PhasePilot,
 			Status:            ResultStatusUnsupported,
-			ExecutionBoundary: ExecutionBoundary,
+			ExecutionBoundary: BoundaryEvm2TransactionExecution,
 			Error:             &ResultError{Stage: "workload", Message: "generator marked case unsupported"},
 		}
 	}

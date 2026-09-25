@@ -252,8 +252,14 @@ func writeGasfitRuntimes(path string, workload *Workload, results []Result) erro
 		if !ok {
 			return fmt.Errorf("sample %q references unknown case %q", result.SampleID, result.CaseID)
 		}
+		// Boundaries are unique per engine, so each row names the engine that
+		// produced it; gasfit models are per client.
+		engine, err := EngineForExecutionBoundary(result.ExecutionBoundary)
+		if err != nil {
+			return fmt.Errorf("sample %q: %w", result.SampleID, err)
+		}
 		row := []string{
-			SupportedClient, result.CaseID, durationMilliseconds(result.ExecutionDurationNS), result.SessionID,
+			engine, result.CaseID, durationMilliseconds(result.ExecutionDurationNS), result.SessionID,
 			result.SampleID, result.Phase, result.Status, strconv.FormatBool(result.CorrectnessPassed),
 			strconv.FormatUint(result.Repetition, 10), result.ExecutionBoundary, dereference(result.BaselineHash),
 			dereference(result.PreparedHash), dereference(result.CommitmentHash), uintString(result.DeclaredGas),

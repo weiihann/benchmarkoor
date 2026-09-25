@@ -88,6 +88,7 @@
       "required": ["sender", "to", "data", "value", "gas_limit"],
       "properties": {
         "sender": { "$ref": "#/$defs/address" },
+        "secret_key": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
         "to": { "$ref": "#/$defs/address" },
         "data": { "$ref": "#/$defs/hexByteString" },
         "value": { "$ref": "#/$defs/hexQuantity" },

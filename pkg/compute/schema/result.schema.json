@@ -20,7 +20,7 @@
     "phase": { "enum": ["diagnostic", "pilot", "warmup", "qualification"] },
     "status": { "enum": ["executed", "failed", "unsupported"] },
     "execution_duration_ns": { "type": ["integer", "null"], "minimum": 0 },
-    "execution_boundary": { "const": "evm2_transaction_execution" },
+    "execution_boundary": { "enum": ["evm2_transaction_execution", "newl1_block_execution"] },
     "baseline_hash": { "$ref": "#/$defs/artifactHash" },
     "prepared_hash": { "$ref": "#/$defs/artifactHash" },
     "commitment_hash": { "$ref": "#/$defs/artifactHash" },

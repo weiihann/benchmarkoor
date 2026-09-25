@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.7
+#
+# NewL1 block-execution compute worker (`compute.engine: newl1`). Build with a
+# NewL1 checkout as the source context; this recipe has its own source-only
+# ignore file so NewL1's production .dockerignore is left untouched:
+#   docker build -f Dockerfile.compute-worker-newl1 \
+#     -t benchmarkoor-compute-worker-newl1:local ../bnbchain-newL1
+# The checkout must contain bin/newl1-bench and its Cargo.lock.
+
+ARG RUST_IMAGE=rust:1.93.0-bookworm
+FROM ${RUST_IMAGE} AS build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        clang \
+        cmake \
+        libclang-dev \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+ENV CC=clang
+
+WORKDIR /src/newl1
+COPY . .
+RUN cargo build --locked --release --package newl1-bench
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /src/newl1/target/release/newl1-bench /usr/local/bin/newl1-bench
+ENTRYPOINT ["newl1-bench"]

@@ -81,7 +81,7 @@ func Analyze(ctx context.Context, log logrus.FieldLogger, runDir string, configO
 		return finishAnalysis(runDir, attemptDir, status, "failed", err)
 	}
 	status.InputHashes = inputs.Hashes
-	if err := config.ValidateComputeQualificationPolicy(filepath.Join(attemptDir, gasfitConfigFile)); err != nil {
+	if err := config.ValidateComputeQualificationPolicy(filepath.Join(attemptDir, gasfitConfigFile), campaign.Engine); err != nil {
 		return finishAnalysis(runDir, attemptDir, status, "failed", err)
 	}
 
@@ -197,7 +197,30 @@ func readArchivedCampaign(path string) (*config.ComputeConfig, error) {
 	if campaign.Analyzer.Image == "" {
 		return nil, fmt.Errorf("archived campaign %q has no analyzer image", path)
 	}
+	if campaign.Engine == "" {
+		// Runs recorded before campaigns named their engine: the manifest's
+		// boundary is unique per engine, so it identifies the engine exactly.
+		engine, err := archivedManifestEngine(filepath.Join(filepath.Dir(path), "manifest.json"))
+		if err != nil {
+			return nil, fmt.Errorf("archived campaign %q names no engine: %w", path, err)
+		}
+		campaign.Engine = engine
+	}
 	return &campaign, nil
+}
+
+func archivedManifestEngine(path string) (string, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading archived manifest %q: %w", path, err)
+	}
+	var manifest struct {
+		Boundary string `json:"boundary"`
+	}
+	if err := json.Unmarshal(contents, &manifest); err != nil {
+		return "", fmt.Errorf("decoding archived manifest %q: %w", path, err)
+	}
+	return EngineForExecutionBoundary(manifest.Boundary)
 }
 
 func selectedAnalysisConfig(runDir, configOverride string) (string, error) {

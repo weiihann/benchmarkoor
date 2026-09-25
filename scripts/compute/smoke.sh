@@ -83,6 +83,7 @@ compute:
   id: osaka-add-keccak-smoke
   results_dir: ${results_dir}
   container_runtime: docker
+  engine: evm2
   worker_image: benchmarkoor-compute-worker:smoke
   generator:
     image: benchmarkoor-compute-generator:smoke

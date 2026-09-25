@@ -87,7 +87,7 @@ qualification:
 campaign: {}
 `), 0o600))
 
-	err := config.ValidateComputeQualificationPolicy(configPath)
+	err := config.ValidateComputeQualificationPolicy(configPath, EngineEvm2)
 
 	assert.ErrorContains(t, err, "positive qualification.max_relative_uncertainty")
 }

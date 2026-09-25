@@ -1,8 +1,9 @@
-# Osaka evm2 compute campaigns
+# Osaka compute campaigns
 
-A compute campaign exports fixed-work Osaka workloads through execution-specs,
-executes them with evm2, archives every sample, and invokes evm-gasfit. The
-pipeline does not reimplement workload generation, EVM execution, or modeling.
+A compute campaign exports fixed-work or gas-budget Osaka workloads through
+execution-specs, executes them with evm2 or NewL1, archives every sample, and
+invokes evm-gasfit. The pipeline does not reimplement workload generation, EVM
+execution, or modeling.
 
 The campaign is compute-only. It does not change gas constants, recommend a
 block gas limit, or price memory, storage, state growth, or network capacity.
@@ -87,27 +88,49 @@ selection expression, deterministic seed, fixed target-count grid, family
 allowlist, and transaction gas cap.
 
 The worker protocol is versioned under `pkg/compute/schema/`. A request names a
-workload, session, mode, and frozen list of samples. `evm2-bench` flushes one
-terminal JSONL record per requested sample.
+workload, session, mode, and frozen list of samples. The engine's worker flushes
+one terminal JSONL record per requested sample.
 
-## Measurement boundary
+## Engines and measurement boundaries
 
-The `evm2_transaction_execution` timer covers each transaction's validation,
-execution, settlement, and state commit through evm2. It excludes:
+`compute.engine` selects the worker and fixes the boundary every result must
+report; a row with another engine's boundary is an accounting error.
 
-- workload parsing and prestate preparation
-- baseline cloning
-- EVM construction
-- correctness checks
-- artifact hashing and serialization
+| Engine | Worker | Boundary | Timed unit |
+| --- | --- | --- | --- |
+| `evm2` | `evm2-bench` (`Dockerfile.compute-worker`) | `evm2_transaction_execution` | Each transaction's validation, execution, settlement, and state commit through evm2 |
+| `newl1` | `newl1-bench` (`Dockerfile.compute-worker-newl1`) | `newl1_block_execution` | One NewL1 production block (`NewL1EvmBlockExecution::execute`): all of the case's transactions, the Parlia system tail, and the LtHash commitment |
+
+Both boundaries exclude workload parsing and prestate preparation, baseline
+restoration, EVM construction, signer recovery, correctness checks, and artifact
+hashing and serialization. The NewL1 worker signs real EIP-1559 transactions from
+each transaction's `secret_key` (EEST test keys) and runs its bench-only genesis
+at Osaka; production NewL1 fork configuration is untouched.
 
 Diagnostic samples run with an inspector and report opcode counts plus addressed
 precompile invocations. Pilot, warmup, and qualification samples run without the
-inspector and must report a positive `execution_duration_ns`.
+inspector and must report a positive `execution_duration_ns`. NewL1 counts only
+the opcodes of the case's own transactions: system calls are per-block overhead
+inside the timer, not workload. Like evm2 and the fill's reference trace, it
+counts the opcode that exhausts a transaction's gas.
 
 Each qualification session uses a fresh worker process. The worker restores the
 prepared baseline for every sample. Diagnostic and pilot requests use separate
 processes and do not warm qualification sessions.
+
+## Gas-budget blocks
+
+`fill --gas-benchmark-values` exports EIP-7904's layout: each target case is one
+block whose gas budget EEST splits into 2^24-gas transactions (one sender, or one
+per transaction for uncachable variants)
+(`workload_mode: gas_budget`, `gas_budget`, `tx_count`; IDs end in
+`-benchmark-gas-value_<N>M`). The transactions run until their gas is exhausted,
+so the reference oracle expects failed receipts. `scripts/compute/pricing_campaign.py
+--workload-mode gas_budget --gas-budgets 120,240,...` plans one generation job per
+variant and budget; the calibration lane stays fixed-count. Diagnostic target
+counts must match the fill's reference trace exactly in both modes, after
+removing what the Osaka pre-block system calls execute: the fill counts the whole
+block, and the EIP-4788 and EIP-2935 contracts each run one `MOD`.
 
 ## Correctness and failures
 

@@ -19,6 +19,7 @@ func TestComputeConfigValidate(t *testing.T) {
 			ID:               "osaka-add-keccak-local",
 			ResultsDir:       t.TempDir(),
 			ContainerRuntime: "docker",
+			Engine:           ComputeEngineEvm2,
 			WorkerImage:      "benchmarkoor-compute-worker:local",
 			Generator: &ComputeGeneratorConfig{
 				Image:            "benchmarkoor-compute-generator:local",

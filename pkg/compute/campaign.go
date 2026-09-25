@@ -102,6 +102,12 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 	if cfg == nil {
 		return "", errors.New("compute configuration is required")
 	}
+	// The campaign engine fixes the boundary every reconciled result must
+	// report; resolving it once here keeps later fabrication sites honest.
+	boundary, err := ExecutionBoundaryForEngine(cfg.Engine)
+	if err != nil {
+		return "", fmt.Errorf("resolving compute engine boundary: %w", err)
+	}
 	resultsDir, err := filepath.Abs(cfg.ResultsDir)
 	if err != nil {
 		return "", fmt.Errorf("resolving compute results directory: %w", err)
@@ -194,7 +200,7 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 			return runDir, fmt.Errorf("writing campaign manifest after image resolution failure: %w", err)
 		}
 
-		return finishUnstartedCampaign(ctx, log, runDir, &summary, flattenRequests(plan), imageErr)
+		return finishUnstartedCampaign(ctx, log, runDir, &summary, flattenRequests(plan), boundary, imageErr)
 	}
 	if generatedImage, ok := generatedWorkloadImage(workloadPath); ok {
 		images["generator"] = generatedImage
@@ -219,7 +225,7 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 	canonical := make(map[string]Result, len(flattenRequests(plan)))
 	var runErrors []error
 	for _, session := range plan {
-		results, sessionErr := runComputeSession(ctx, manager, runDir, session, limits, timeout, images["worker"])
+		results, sessionErr := runComputeSession(ctx, manager, runDir, session, limits, timeout, images["worker"], boundary)
 		for sampleID, result := range results {
 			canonical[sampleID] = result
 		}
@@ -228,7 +234,7 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 		}
 	}
 	requests := flattenRequests(plan)
-	canonical = reconcileCampaignResults(requests, canonical)
+	canonical = reconcileCampaignResults(requests, canonical, boundary)
 	canonical = enforceCampaignIntegrity(requests, canonical)
 	if err := writeCanonicalResults(runDir, requests, canonical); err != nil {
 		return runDir, err
@@ -266,8 +272,8 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 	return runDir, nil
 }
 
-func finishUnstartedCampaign(ctx context.Context, log logrus.FieldLogger, runDir string, summary *campaignSummary, requests []Request, cause error) (string, error) {
-	results := reconcileCampaignResults(requests, make(map[string]Result, len(requests)))
+func finishUnstartedCampaign(ctx context.Context, log logrus.FieldLogger, runDir string, summary *campaignSummary, requests []Request, boundary string, cause error) (string, error) {
+	results := reconcileCampaignResults(requests, make(map[string]Result, len(requests)), boundary)
 	if err := writeCanonicalResults(runDir, requests, results); err != nil {
 		return runDir, err
 	}
@@ -577,7 +583,7 @@ func requestLedgerRecord(request Request, sample RequestSample) map[string]any {
 	return map[string]any{"schema_version": SchemaVersion, "session_id": request.SessionID, "mode": request.Mode, "sample_id": sample.SampleID, "case_id": sample.CaseID, "repetition": sample.Repetition, "phase": sample.Phase}
 }
 
-func runComputeSession(ctx context.Context, manager docker.ContainerManager, runDir string, session plannedSession, limits *docker.ResourceLimits, timeout time.Duration, workerImage string) (map[string]Result, error) {
+func runComputeSession(ctx context.Context, manager docker.ContainerManager, runDir string, session plannedSession, limits *docker.ResourceLimits, timeout time.Duration, workerImage, boundary string) (map[string]Result, error) {
 	sessionCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	rawPath := filepath.Join(session.Path, "samples.jsonl")
@@ -606,18 +612,21 @@ func runComputeSession(ctx context.Context, manager docker.ContainerManager, run
 	}); err != nil {
 		runErr = errors.Join(runErr, fmt.Errorf("writing worker exit facts: %w", err))
 	}
-	results, parseErr := parseSessionResults(rawPath, session.Request)
+	results, parseErr := parseSessionResults(rawPath, session.Request, boundary)
 	if runErr != nil {
 		parseErr = errors.Join(parseErr, fmt.Errorf("worker session %q: %w", session.Request.SessionID, runErr))
 	}
 	if parseErr != nil {
-		return failedSessionResults(session.Request, parseErr.Error()), parseErr
+		return failedSessionResults(session.Request, boundary, parseErr.Error()), parseErr
 	}
 
 	return results, nil
 }
 
-func parseSessionResults(path string, request Request) (map[string]Result, error) {
+// parseSessionResults decodes one worker session's JSONL output. Every
+// terminal record must validate and carry exactly the campaign engine's
+// execution boundary; a foreign-boundary row is an accounting error.
+func parseSessionResults(path string, request Request, boundary string) (map[string]Result, error) {
 	results := make(map[string]Result, len(request.Samples))
 	file, err := os.Open(path)
 	if err != nil {
@@ -648,8 +657,15 @@ func parseSessionResults(path string, request Request) (map[string]Result, error
 			parseErrors = append(parseErrors, fmt.Errorf("invalid worker result for sample %q: %w", result.SampleID, err))
 			continue
 		}
+		if result.ExecutionBoundary != boundary {
+			parseErrors = append(parseErrors, fmt.Errorf(
+				"invalid worker result for sample %q: execution_boundary %q is not the campaign boundary %q",
+				result.SampleID, result.ExecutionBoundary, boundary,
+			))
+			continue
+		}
 		if _, duplicate := results[result.SampleID]; duplicate {
-			results[result.SampleID] = controllerFailure(request, sample, "reconciliation", "worker emitted duplicate terminal results for this sample")
+			results[result.SampleID] = controllerFailure(boundary, request, sample, "reconciliation", "worker emitted duplicate terminal results for this sample")
 			parseErrors = append(parseErrors, fmt.Errorf("duplicate worker result for sample %q", result.SampleID))
 			continue
 		}
@@ -668,20 +684,20 @@ func parseSessionResults(path string, request Request) (map[string]Result, error
 	return results, errors.Join(parseErrors...)
 }
 
-func failedSessionResults(request Request, message string) map[string]Result {
+func failedSessionResults(request Request, boundary string, message string) map[string]Result {
 	results := make(map[string]Result, len(request.Samples))
 	for _, sample := range request.Samples {
-		results[sample.SampleID] = controllerFailure(request, sample, "worker_session", message)
+		results[sample.SampleID] = controllerFailure(boundary, request, sample, "worker_session", message)
 	}
 
 	return results
 }
 
-func reconcileCampaignResults(requests []Request, results map[string]Result) map[string]Result {
+func reconcileCampaignResults(requests []Request, results map[string]Result, boundary string) map[string]Result {
 	for _, request := range requests {
 		for _, sample := range request.Samples {
 			if _, exists := results[sample.SampleID]; !exists {
-				results[sample.SampleID] = controllerFailure(request, sample, "reconciliation", "worker did not emit a terminal result")
+				results[sample.SampleID] = controllerFailure(boundary, request, sample, "reconciliation", "worker did not emit a terminal result")
 			}
 		}
 	}
@@ -728,8 +744,8 @@ func enforceCampaignIntegrity(requests []Request, results map[string]Result) map
 	return results
 }
 
-func controllerFailure(request Request, sample RequestSample, stage, message string) Result {
-	return Result{SchemaVersion: SchemaVersion, SessionID: request.SessionID, SampleID: sample.SampleID, CaseID: sample.CaseID, Repetition: sample.Repetition, Phase: sample.Phase, Status: ResultStatusFailed, ExecutionBoundary: computeExecutionBoundary, Error: &ResultError{Stage: stage, Message: message}}
+func controllerFailure(boundary string, request Request, sample RequestSample, stage, message string) Result {
+	return Result{SchemaVersion: SchemaVersion, SessionID: request.SessionID, SampleID: sample.SampleID, CaseID: sample.CaseID, Repetition: sample.Repetition, Phase: sample.Phase, Status: ResultStatusFailed, ExecutionBoundary: boundary, Error: &ResultError{Stage: stage, Message: message}}
 }
 
 func integrityFailure(result Result, message string) Result {
@@ -802,7 +818,7 @@ func newCampaignSummary(cfg *config.ComputeConfig, workloadSHA string) campaignS
 	summary.SuiteHash = workloadSHA
 	summary.Status = "running"
 	summary.Instance.ID = cfg.ID
-	summary.Instance.Client = SupportedClient
+	summary.Instance.Client = cfg.Engine
 	summary.Instance.Image = cfg.WorkerImage
 	summary.Metadata.Labels = map[string]string{"campaign": cfg.ID, "mode": "compute"}
 	summary.Compute.SchemaVersion = computeManifestSchemaVersion

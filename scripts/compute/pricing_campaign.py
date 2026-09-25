@@ -77,12 +77,24 @@ EXPECTED_CALIBRATION_TESTS = (
     "test_gas_op_straight",
 )
 EXPECTED_CALIBRATION_VARIANTS = 19
-COUNT_SUFFIX = re.compile(r"-opcount_([0-9]+(?:\.[0-9]+)?)K\]$")
+# Terminal work-size token of a case ID: fixed-count exports end in
+# ``-opcount_<thousands>K]``, gas-budget (EIP-7904 block layout) exports in
+# ``-benchmark-gas-value_<Mgas>M]``. A point's count is in the case's own unit.
+WORK_SUFFIX = re.compile(
+    r"-(?:opcount_(?P<count>[0-9]+(?:\.[0-9]+)?)K|benchmark-gas-value_(?P<budget>[0-9]+)M)\]$")
+WORKLOAD_MODES = ("fixed_count", "gas_budget")
+# EIP-7904 swept block gas budgets of 100-300 Mgas in 20 Mgas steps.
+DEFAULT_GAS_BUDGETS = list(range(100, 301, 20))
+GAS_BUDGET_UNIT = 1_000_000
+# Target opcodes the Osaka pre-block system calls execute once per block: the
+# EIP-4788 beacon-roots and EIP-2935 history contracts each take one MOD for
+# their ring-buffer index. Fill counts include them; worker counts do not.
+SYSTEM_CALL_OPCODES = {"MOD": 2}
 IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 CPU_LIST = re.compile(r"[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*\Z")
 MEMORY_SPEC = re.compile(r"[1-9][0-9]*(?:[bkmgBKMG])?\Z")
 HASH64 = re.compile(r"(?:0x)?[0-9a-fA-F]{64}\Z")
-BOUNDARY = "evm2_transaction_execution"
+BOUNDARIES = {"evm2": "evm2_transaction_execution", "newl1": "newl1_block_execution"}
 ROLES = ("target", "calibration")
 TIMED_CPU = 14
 RESERVED_CPUS = (14, 30)
@@ -169,9 +181,11 @@ def artifact(path: Path, home: Path) -> dict[str, Any]:
 
 
 def identity(case_id: str) -> tuple[str, int]:
-    match = COUNT_SUFFIX.search(case_id)
-    require(match is not None, f"Case ID lacks a count suffix: {case_id}")
-    count = Decimal(match.group(1)) * 1000
+    match = WORK_SUFFIX.search(case_id)
+    require(match is not None, f"Case ID lacks a work-size suffix: {case_id}")
+    if match.group("budget") is not None:
+        return case_id[:match.start()] + "]", int(match.group("budget"))
+    count = Decimal(match.group("count")) * 1000
     require(count == count.to_integral_value(), f"Fractional count: {case_id}")
     return case_id[:match.start()] + "]", int(count)
 
@@ -204,6 +218,10 @@ def identity_settings(args: argparse.Namespace) -> dict[str, Any]:
         "families": list(FAMILIES),
         "calibration_module": CALIBRATION_MODULE,
         "fixture_format": args.fixture_format,
+        "engine": args.engine,
+        "workload_mode": args.workload_mode,
+        "gas_budgets": args.gas_budgets if args.workload_mode == "gas_budget" else None,
+        "select": args.select,
     }
 
 
@@ -287,7 +305,8 @@ def docker_generation(args: argparse.Namespace, directory: Path, mount: str, ima
         f"--name={container_name(directory, label)}",
         f"--cpuset-cpus={args.generation_cpuset}", f"--memory={args.generation_memory}",
         f"--memory-swap={args.generation_memory}", "--user", f"{os.getuid()}:{os.getgid()}",
-        "--env", "PYTHONDONTWRITEBYTECODE=1", "--volume", f"{directory}:{mount}", image,
+        "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", f"HOME={mount}/home",
+        "--volume", f"{directory}:{mount}", image,
     ]
 
 
@@ -296,8 +315,17 @@ def docker_generation(args: argparse.Namespace, directory: Path, mount: str, ima
 
 def generation_argv(args: argparse.Namespace, directory: Path, counts: list[int],
                     modules: list[str], selection: list[str], role: str,
-                    families: tuple[str, ...]) -> list[str]:
-    count_argument = ",".join(format(Decimal(count) / 1000, "f") for count in counts)
+                    families: tuple[str, ...], gas_budgets: bool = False,
+                    workers: int = 1) -> list[str]:
+    """Fill argv; ``gas_budgets`` reads ``counts`` as block budgets in Mgas.
+
+    ``workers`` spreads one fill over xdist processes; the exporter drops the
+    xdist group tag, so case identities do not depend on it.
+    """
+    work_argument = (
+        "--gas-benchmark-values=" + ",".join(str(count) for count in counts) if gas_budgets
+        else "--fixed-opcode-count="
+        + ",".join(format(Decimal(count) / 1000, "f") for count in counts))
     argv = docker_generation(args, directory, "/out", args.generator_image, "generator") + [
         "--fork", "Osaka", "--benchmark-workload-export=/out/workload.json",
         f"--benchmark-workload-seed={SEED}",
@@ -305,9 +333,10 @@ def generation_argv(args: argparse.Namespace, directory: Path, counts: list[int]
         f"--benchmark-workload-tx-gas-cap={GAS_CAP}",
         f"--benchmark-workload-role={role}",
         "--benchmark-workload-families=" + ",".join(families),
-        f"--fixed-opcode-count={count_argument}", "--output=/out/fixtures",
-        "--no-html", "--skip-index", "--junitxml=/out/junit.xml",
-        "-o", "cache_dir=/out/pytest-cache", "-q", "-ra", *selection, *modules]
+        work_argument, "--output=/out/fixtures",
+        "--no-html", "--skip-index", "--junitxml=/out/junit.xml", "--log-to=/out/logs",
+        "-o", "cache_dir=/out/pytest-cache", "-q", "-ra",
+        *(["-n", str(workers)] if workers > 1 else []), *selection, *modules]
     return argv
 
 
@@ -327,7 +356,12 @@ def checked_workload(path: Path, args: argparse.Namespace,
         require(case_id not in ids, f"Duplicate case ID in {path}: {case_id}")
         ids.add(case_id)
         parameters = case["parameters"]
-        require(parameters.get("workload_mode") == "fixed_count", f"Not fixed work: {case_id}")
+        mode = parameters.get("workload_mode")
+        require(mode in WORKLOAD_MODES, f"Unknown workload mode: {case_id}")
+        # Calibration drivers stay fixed-count single-transaction work; only the
+        # target lane follows the campaign's workload mode.
+        require(mode == ("fixed_count" if case_role(case) == "calibration"
+                         else args.workload_mode), f"Wrong workload mode: {case_id}")
         require(isinstance(parameters.get("source_parameters"), dict),
                 f"Missing source parameters: {case_id}")
         require(case["status"] in {"ready", "unsupported"}, f"Unknown status: {case_id}")
@@ -370,13 +404,26 @@ def check_calibration_case(case: dict[str, Any], module: str) -> None:
 def check_ready_case(case: dict[str, Any], count: int) -> None:
     case_id = case["id"]
     parameters = case["parameters"]
-    require(parameters.get("requested_opcode_count") == count,
-            f"Count metadata disagrees with ID: {case_id}")
     transactions = case["transactions"]
-    require(len(transactions) == 1 and parameters.get("tx_count") == 1,
-            f"Expected single fixed-work transaction: {case_id}")
-    require(all(tx["gas_limit"] == GAS_CAP for tx in transactions),
-            f"Inconsistent transaction allowance: {case_id}")
+    if parameters["workload_mode"] == "gas_budget":
+        budget = count * GAS_BUDGET_UNIT
+        require(parameters.get("gas_budget") == budget,
+                f"Budget metadata disagrees with ID: {case_id}")
+        # EEST splits the budget at the EIP-7825 cap: full slices, then the
+        # remainder. Uncachable variants give each slice its own sender.
+        limits = [tx["gas_limit"] for tx in transactions]
+        require(sum(limits) == budget and len(limits) == -(-budget // GAS_CAP)
+                and all(limit == GAS_CAP for limit in limits[:-1])
+                and 0 < limits[-1] <= GAS_CAP
+                and parameters.get("tx_count") == len(limits),
+                f"Budget is not split at the transaction cap: {case_id}")
+    else:
+        require(parameters.get("requested_opcode_count") == count,
+                f"Count metadata disagrees with ID: {case_id}")
+        require(len(transactions) == 1 and parameters.get("tx_count") == 1,
+                f"Expected single fixed-work transaction: {case_id}")
+        require(all(tx["gas_limit"] == GAS_CAP for tx in transactions),
+                f"Inconsistent transaction allowance: {case_id}")
     require(len(case["expected"]["receipts"]) == len(transactions),
             f"Oracle transaction count mismatch: {case_id}")
     require(bool(case["target_operation"]) and case["target_operation"] != "SHA3",
@@ -414,7 +461,8 @@ def diagnose(args: argparse.Namespace, directory: Path, workload: dict[str, Any]
     require(returncode == 0,
             f"worker exited {returncode}; inspect {directory / 'worker.log'}. "
             "Nothing was retried or excluded.")
-    result = validate_diagnostics(workload, request, directory / "diagnostic.jsonl")
+    result = validate_diagnostics(workload, request, directory / "diagnostic.jsonl",
+                                  BOUNDARIES[args.engine])
     save(directory / "diagnostic-validation.json",
          {key: value for key, value in result.items() if key != "rows_by_case"})
     require(not result["errors"],
@@ -422,7 +470,12 @@ def diagnose(args: argparse.Namespace, directory: Path, workload: dict[str, Any]
     return result
 
 
-def validate_diagnostics(workload: dict[str, Any], request: dict[str, Any], path: Path) -> dict[str, Any]:
+def declared_gas(case: dict[str, Any]) -> int:
+    return sum(tx["gas_limit"] for tx in case["transactions"])
+
+
+def validate_diagnostics(workload: dict[str, Any], request: dict[str, Any], path: Path,
+                         boundary: str) -> dict[str, Any]:
     samples = {sample["sample_id"]: sample for sample in request["samples"]}
     cases = {case["id"]: case for case in workload["cases"]}
     observed: dict[str, Any] = {}
@@ -440,7 +493,7 @@ def validate_diagnostics(workload: dict[str, Any], request: dict[str, Any], path
                 require(row[key] == sample[key], f"Wrong {key}: {sample_id}")
             require(row["schema_version"] == 2 and row["session_id"] == request["session_id"],
                     f"Wrong schema/session: {sample_id}")
-            require(row["execution_boundary"] == BOUNDARY, f"Wrong boundary: {sample_id}")
+            require(row["execution_boundary"] == boundary, f"Wrong boundary: {sample_id}")
             if case["status"] == "unsupported":
                 require(row["status"] == "unsupported" and not row["correctness_passed"],
                         f"Unsupported case did not remain unsupported: {case['id']}")
@@ -453,8 +506,10 @@ def validate_diagnostics(workload: dict[str, Any], request: dict[str, Any], path
             for key in ("baseline_hash", "prepared_hash", "commitment_hash"):
                 require(re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", row.get(key) or "") is not None,
                         f"Invalid {key}: {case['id']}")
-            require(row["declared_gas"] == GAS_CAP, f"Diagnostic allowance mismatch: {case['id']}")
-            require(type(row["charged_gas"]) is int and 0 < row["charged_gas"] <= GAS_CAP,
+            declared = declared_gas(case)
+            require(row["declared_gas"] == declared,
+                    f"Diagnostic allowance mismatch: {case['id']}")
+            require(type(row["charged_gas"]) is int and 0 < row["charged_gas"] <= declared,
                     f"Invalid charged gas: {case['id']}")
             parameters = case["parameters"]
             key = parameters.get("target_count_key", case["target_operation"])
@@ -462,8 +517,13 @@ def validate_diagnostics(workload: dict[str, Any], request: dict[str, Any], path
             require(type(count) is int and count > 0
                     and row["opcode_counts"].get(key, 0) == count,
                     f"Missing/incorrect positive semantic count {key}: {case['id']}")
-            expected = parameters.get("fill_observed_opcode_counts", {}).get(key)
-            if case.get("family") == "precompile":
+            # The fill's count is block-wide, so it includes the Osaka pre-block
+            # system calls; workers count only the case's own transactions.
+            observed_ref = parameters.get("fill_observed_opcode_counts", {}).get(key)
+            expected = (None if observed_ref is None
+                        else observed_ref - SYSTEM_CALL_OPCODES.get(key, 0))
+            if (case.get("family") == "precompile"
+                    and parameters["workload_mode"] == "fixed_count"):
                 expected = parameters["requested_opcode_count"]
             if expected is not None:
                 require(count == expected,
@@ -477,12 +537,22 @@ def validate_diagnostics(workload: dict[str, Any], request: dict[str, Any], path
             "rows_by_case": {row["case_id"]: row for row in observed.values() if "case_id" in row}}
 
 
-def inventory_cases(workload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def inventory_point(args: argparse.Namespace) -> int:
+    """The single work size the inventory exports per variant."""
+    return args.gas_budgets[0] if args.workload_mode == "gas_budget" else 1
+
+
+def selection_argv(args: argparse.Namespace) -> list[str]:
+    """The target selection as a fill ``-k`` term; empty for the full corpus."""
+    return ["-k", args.select] if args.select is not None else []
+
+
+def inventory_cases(workload: dict[str, Any], point: int) -> dict[str, dict[str, Any]]:
     variants: dict[str, dict[str, Any]] = {}
     for case in workload["cases"]:
         variant, count = case_identity(case)
-        require(count == 1 and variant not in variants,
-                f"Inventory is not one count per variant: {variant}")
+        require(count == point and variant not in variants,
+                f"Inventory is not one work size per variant: {variant}")
         variants[variant] = case
     return variants
 
@@ -500,18 +570,27 @@ def unsupported_label(case: dict[str, Any]) -> str:
     return name
 
 
-def coverage(workload: dict[str, Any]) -> dict[str, Any]:
-    variants = inventory_cases(workload)
+def coverage(workload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    variants = inventory_cases(workload, inventory_point(args))
     unsupported = [case for case in variants.values() if case["status"] == "unsupported"]
     labels = {unsupported_label(case) for case in unsupported}
     errors = []
-    if len(variants) != EXPECTED_VARIANTS:
+    if args.select is not None:
+        # A selected campaign pins its variant set by the recorded inventory,
+        # which every later stage checks shards and the union against.
+        if not variants:
+            errors.append(f"Selection matched no variants: {args.select!r}")
+    elif len(variants) != EXPECTED_VARIANTS:
         errors.append(f"Expected {EXPECTED_VARIANTS} variants, found {len(variants)}; "
                       "investigate source collection, do not drop variants")
-    if len(unsupported) != 4 or labels != KNOWN_UNSUPPORTED:
+    # The pinned limitations are fixed-count ones. Gas-budget export runs the
+    # generator-less variants and skips exact-count witnesses instead, so its
+    # unsupported set is the inventory's own record, carried to assembly.
+    if args.workload_mode == "fixed_count" and (
+            len(unsupported) != 4 or labels != KNOWN_UNSUPPORTED):
         errors.append("Unsupported inventory differs from the four pinned limitations; "
                       "investigate every discrepancy")
-    for case in unsupported:
+    for case in unsupported if args.workload_mode == "fixed_count" else ():
         expected_fragment = ("exceeding the forwardable transaction allowance"
                              if unsupported_label(case) not in {"test_clz_diff",
                                                                 "test_p256verify_uncachable"}
@@ -560,8 +639,9 @@ def prepare_stage(args: argparse.Namespace, name: str, replace: bool = False) ->
     continuing = getattr(args, "continue_stage", False) and directory.is_dir()
     require(continuing or replace or not directory.exists(),
             f"Stage directory already exists: {directory}")
-    if continuing and name in WHOLE_DIRECTORY_STAGES and (directory / "stage.json").is_file():
-        require((directory / "stage.json").is_file(), f"Stage is incomplete: {directory}")
+    # Only an unfinished attempt restarts; a completed stage is verified by main.
+    if (continuing and name in WHOLE_DIRECTORY_STAGES and (directory / "stage.json").is_file()
+            and not (directory / "complete.json").is_file()):
         stamp = now().replace(":", "")
         previous = args.run_home / f"{name}.attempt-{stamp}"
         directory.rename(previous)
@@ -582,11 +662,17 @@ def prepare_stage(args: argparse.Namespace, name: str, replace: bool = False) ->
 
 def run_inventory(args: argparse.Namespace, directory: Path) -> None:
     # Both fixture formats: variant discovery must not depend on the format audit.
-    argv = generation_argv(args, directory, [1], [*INSTRUCTIONS, PRECOMPILES], [],
-                           role="target", families=FAMILIES)
+    budgets = args.workload_mode == "gas_budget"
+    # Gas-budget blocks go through the pure-Python reference tool (a 120 Mgas
+    # BLAKE2F block takes tens of minutes), so the one inventory fill uses the
+    # whole generation pool.
+    argv = generation_argv(args, directory, [inventory_point(args)],
+                           [*INSTRUCTIONS, PRECOMPILES], selection_argv(args), role="target",
+                           families=FAMILIES, gas_budgets=budgets,
+                           workers=args.generation_jobs if budgets else 1)
     command(directory, "generator", argv)
     workload = checked_workload(directory / "workload.json", args)
-    report = coverage(workload)
+    report = coverage(workload, args)
     save(directory / "coverage.json", report)
     diagnose(args, directory, workload, "inventory-diagnostic")
     require(not report["errors"], f"Inventory divergence; inspect {directory / 'coverage.json'}")
@@ -595,7 +681,8 @@ def run_inventory(args: argparse.Namespace, directory: Path) -> None:
         "diagnostic-validation.json")])
 
 
-def exact_variant_regex(variant: str, fixture_format: str) -> str:
+def exact_variant_regex(variant: str, fixture_format: str,
+                        work_token: str = r"opcount_[0-9]+(?:\.[0-9]+)?K") -> str:
     """Restore the format token removed by the exporter; anchor the node ID."""
     require(variant.endswith("]") and "[fork_Osaka-" in variant,
             f"Unexpected pytest variant layout: {variant}")
@@ -606,11 +693,26 @@ def exact_variant_regex(variant: str, fixture_format: str) -> str:
     pieces = [re.escape(part) for part in parts]
     pieces[1] = {"engine": "blockchain_test_engine",
                  "both": r"(?:blockchain_test_engine|blockchain_test)"}[fixture_format]
-    return re.escape(prefix) + r"\[" + "-".join(pieces) + r"-opcount_[0-9]+(?:\.[0-9]+)?K\]"
+    return re.escape(prefix) + r"\[" + "-".join(pieces) + "-" + work_token + r"\]"
 
 
-def make_jobs(variants: dict[str, dict[str, Any]], diagnostics: dict[str, Any],
-              fixture_format: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def make_jobs(args: argparse.Namespace, variants: dict[str, dict[str, Any]],
+              diagnostics: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if args.workload_mode == "gas_budget":
+        # EIP-7904 layout: every variant at every block budget, one generation
+        # job per (variant, budget). The reference transition tool is pure
+        # Python, so a single large block (a 360 Mgas pairing block) takes tens
+        # of minutes; per-point jobs let the bounded pool spread that work
+        # instead of serialising a whole budget in one process. Largest budgets
+        # go first so the slowest jobs do not form the tail.
+        return [{"name": f"budget-{budget:04d}M-{index:03d}", "counts": [budget],
+                 "modules": [variant.split("::", 1)[0]],
+                 "selection": ["--regex", "^" + exact_variant_regex(
+                     variant, args.fixture_format, rf"benchmark-gas-value_{budget}M") + "$"],
+                 "variants": [variant], "gas_budgets": True}
+                for budget in sorted(args.gas_budgets, reverse=True)
+                for index, variant in enumerate(sorted(variants))], {}
+    fixture_format = args.fixture_format
     ordinary = sorted(variant for variant, case in variants.items()
                       if case["family"] != "precompile" and test_name(variant) != SPECIAL_TEST)
     special = sorted(variant for variant, case in variants.items() if test_name(variant) == SPECIAL_TEST)
@@ -658,8 +760,13 @@ def same_variant(case: dict[str, Any], original: dict[str, Any]) -> None:
     require(case["status"] == original["status"], f"Status changed across counts: {case['id']}")
     for key in ("family", "target_operation"):
         require(case.get(key) == original.get(key), f"Inconsistent {key}: {case['id']}")
-    for key in ("source_parameters", "target_variant", "target_count_key", "precompile_address",
-                "workload_mode", "tx_count", "overhead_baseline"):
+    # A gas-budget block's tx_count scales with its budget; check_ready_case
+    # already pins it to the budget's split, so it is not variant identity.
+    keys = ["source_parameters", "target_variant", "target_count_key", "precompile_address",
+            "workload_mode", "overhead_baseline"]
+    if case["parameters"].get("workload_mode") != "gas_budget":
+        keys.append("tx_count")
+    for key in keys:
         require(comparable_parameter(case["parameters"].get(key))
                 == comparable_parameter(original["parameters"].get(key)),
                 f"Inconsistent variant parameter {key}: {case['id']}")
@@ -685,9 +792,10 @@ def get_inventory(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, A
     directory = args.run_home / "inventory"
     matching_settings(directory, args)
     workload = checked_workload(directory / "workload.json", args)
-    require(not coverage(workload)["errors"], "Inventory coverage no longer matches pinned source")
+    require(not coverage(workload, args)["errors"],
+            "Inventory coverage no longer matches pinned source")
     diagnostics = validate_diagnostics(workload, load(directory / "request.json"),
-                                       directory / "diagnostic.jsonl")
+                                       directory / "diagnostic.jsonl", BOUNDARIES[args.engine])
     require(not diagnostics["errors"],
             f"Inventory diagnostics no longer pass: {diagnostics['errors']}")
     return workload, diagnostics["rows_by_case"]
@@ -742,7 +850,8 @@ def run_generation_jobs(args: argparse.Namespace, directory: Path,
                 _log_path, process = start_command(
                     shard, "generator",
                     generation_argv(args, shard, job["counts"], job["modules"],
-                                    selection, role, families))
+                                    selection, role, families,
+                                    gas_budgets=job.get("gas_budgets", False)))
                 pending[job["name"]] = (job, process)
                 threading.Thread(target=wait_and_report, args=(job["name"], process),
                                  daemon=True).start()
@@ -774,9 +883,10 @@ def run_generation_jobs(args: argparse.Namespace, directory: Path,
 
 def run_grids(args: argparse.Namespace, directory: Path) -> None:
     inventory, diagnostics = get_inventory(args)
-    variants = inventory_cases(inventory)
-    jobs, evidence = make_jobs(variants, diagnostics, args.fixture_format)
-    plan = {"screen_gas": SCREEN_GAS, "maximum_precompile_calls": 1024,
+    variants = inventory_cases(inventory, inventory_point(args))
+    jobs, evidence = make_jobs(args, variants, diagnostics)
+    plan = {"workload_mode": args.workload_mode, "gas_budgets": identity_settings(args)["gas_budgets"],
+            "screen_gas": SCREEN_GAS, "maximum_precompile_calls": 1024,
             "maximum_precompile_points": 5, "ordinary_grid": ORDINARY_GRID,
             "keccak_grid": KECCAK_GRID, "fixture_format": args.fixture_format,
             "parallel_jobs": args.generation_jobs, "jobs": jobs,
@@ -884,12 +994,12 @@ def archive_recipe(args: argparse.Namespace) -> Path:
 
 def run_assemble(args: argparse.Namespace, directory: Path) -> None:
     inventory, diagnostics = get_inventory(args)
-    variants = inventory_cases(inventory)
+    variants = inventory_cases(inventory, inventory_point(args))
     grids = args.run_home / "grids"
     matching_settings(grids, args)
     calibration = args.run_home / "calibration"
     matching_settings(calibration, args)
-    jobs, evidence = make_jobs(variants, diagnostics, args.fixture_format)
+    jobs, evidence = make_jobs(args, variants, diagnostics)
     saved_plan = load(grids / "plan.json")
     require(saved_plan["jobs"] == jobs and saved_plan["precompile_evidence"] == evidence,
             "Grid plan differs from fresh inventory-derived policy")
@@ -929,7 +1039,11 @@ def run_assemble(args: argparse.Namespace, directory: Path) -> None:
                        for case in selected)
     ready_calibration = len(calibration_cases)
     unsupported = len(selected) - ready_target - ready_calibration
-    require(unsupported == 4, f"Expected exactly four unsupported target cases: {unsupported}")
+    inventory_unsupported = sum(case["status"] == "unsupported" for case in inventory["cases"])
+    require(unsupported == inventory_unsupported and (
+            args.workload_mode == "gas_budget" or unsupported == 4),
+            f"Unsupported target cases {unsupported} differ from the inventory's "
+            f"{inventory_unsupported} (fixed-count also pins exactly four)")
     save(directory / "freeze.json", {
         "sessions": SESSIONS, "pilot_repetitions": PILOT_REPS,
         "warmup_repetitions": WARMUP_REPS, "qualification_repetitions": QUAL_REPS,
@@ -999,10 +1113,10 @@ def load_policy(args: argparse.Namespace) -> dict[str, Any]:
     return load(path) if path.is_file() else {}
 
 
-def validate_analysis_config(path: Path, policy: dict[str, Any]) -> None:
+def validate_analysis_config(path: Path, policy: dict[str, Any], engine: str) -> None:
     config = load(path)
-    require(config.get("version") == 1 and config.get("clients") == ["evm2"],
-            "Analysis config must be version 1 with the evm2 client")
+    require(config.get("version") == 1 and config.get("clients") == [engine],
+            f"Analysis config must be version 1 with the {engine} client")
     require(config.get("gas_costs", {}).get("fork") == "osaka", "Analysis fork must be osaka")
     modeling = config.get("modeling", {})
     require(modeling.get("bootstrap_iterations") == 1000,
@@ -1072,15 +1186,16 @@ def validate_controller_config(config: dict[str, Any], workload: Path, analysis:
     require(re.fullmatch(r"[1-9][0-9]*[smh]", compute["timeout"]) is not None, "Invalid timeout")
 
 
-def make_smoke_workload(corpus: Path) -> dict[str, Any]:
+def make_smoke_workload(corpus: Path, selected_campaign: bool) -> dict[str, Any]:
     """Mixed-lane smoke subset for the glue-enabled path.
 
     Every calibration count-point is kept, plus ALL count-points of one target
     variant of each corpus-side driver test family. Fewer points would make
     the curvature and leave-one-point-out holdout gates non-identifiable by
     construction, and the smoke could never demonstrate a qualified path;
-    deliberate rejection behavior is exercised separately. Smoke prices are
-    still not deployable output.
+    deliberate rejection behavior is exercised separately. A selected campaign
+    uses one variant of each target test it contains instead of the full-corpus
+    driver families. Smoke prices are still not deployable output.
     """
     workload = load(corpus / "workload.json")
     ready = [case for case in workload["cases"] if case["status"] == "ready"]
@@ -1091,7 +1206,10 @@ def make_smoke_workload(corpus: Path) -> dict[str, Any]:
         if case_role(case) == "calibration"]
     target_count = sum(case_role(case) == "target" for case in selected)
     require(not target_count and selected, "Calibration lane missing from corpus")
-    for driver in CORPUS_DRIVER_TESTS:
+    drivers = (sorted({test_name(variant) for (variant, count) in points
+                       if case_role(points[(variant, count)]) == "target"})
+               if selected_campaign else CORPUS_DRIVER_TESTS)
+    for driver in drivers:
         variants = sorted({variant for (variant, _count) in points
                            if test_name(variant) == driver})
         require(variants, f"Corpus driver test absent from assembled corpus: {driver}")
@@ -1104,7 +1222,7 @@ def make_smoke_workload(corpus: Path) -> dict[str, Any]:
             "cases": sorted(selected, key=lambda case: case["id"])}
 
 
-def make_smoke_analysis(smoke_workload: dict[str, Any]) -> dict[str, Any]:
+def make_smoke_analysis(smoke_workload: dict[str, Any], engine: str) -> dict[str, Any]:
     models = []
     new_params: dict[str, Any] = {}
     for case in sorted(smoke_workload["cases"], key=lambda case: case["id"]):
@@ -1116,12 +1234,17 @@ def make_smoke_analysis(smoke_workload: dict[str, Any]) -> dict[str, Any]:
         suffix = hashlib.sha256(variant.encode()).hexdigest()[:12]
         param = f"WORKLOAD_{case['target_operation']}_{suffix}"
         new_params[param] = None
-        models.append({"test_name": test_name(case["id"]),
-                       "target_operation": case["target_operation"],
-                       "filter_by": [variant[:-1] + "-"],
-                       "model_params": {"target_coef": param}})
+        model = {"test_name": test_name(case["id"]),
+                 "target_operation": case["target_operation"],
+                 "filter_by": [variant[:-1] + "-"],
+                 "model_params": {"target_coef": param}}
+        # Precompile counts are keyed PRECOMPILE_<address>, as create-config does.
+        count_key = case["parameters"].get("target_count_key")
+        if count_key:
+            model["target_operation_count_source"] = count_key
+        models.append(model)
     return {
-        "version": 1, "clients": ["evm2"], "gas_costs": {"fork": "osaka"},
+        "version": 1, "clients": [engine], "gas_costs": {"fork": "osaka"},
         "output": {"plots": False},
         "modeling": {"bootstrap_iterations": 1000, "random_seed": SEED},
         "glue_adjustment": {"enabled": True},
@@ -1145,7 +1268,7 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
     policy = load_policy(args)
 
     analysis_config = (args.run_home / "analysis-gasfit.yaml").resolve(strict=True)
-    validate_analysis_config(analysis_config, policy)
+    validate_analysis_config(analysis_config, policy, args.engine)
     validate_models_target_only(load(analysis_config), load(corpus / "workload.json"))
 
     images = {name: resolve_image(reference) for name, reference in (
@@ -1156,14 +1279,15 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
     controller = Path(args.controller).resolve(strict=True)
     require(controller.is_file() and os.access(controller, os.X_OK),
             f"Controller is not an executable file: {controller}")
-    for name, path in (("benchmarkoor", args.benchmarkoor_root), ("evm2", args.evm2_root),
+    engine_root = args.newl1_root if args.engine == "newl1" else args.evm2_root
+    for name, path in (("benchmarkoor", args.benchmarkoor_root), (args.engine, engine_root),
                        ("execution_specs", args.execution_specs_root),
                        ("evm_gasfit", args.evm_gasfit_root)):
         require(path.is_dir(), f"Missing source path for provenance: {name}: {path}")
 
     workload_path = (corpus / "workload.json").resolve(strict=True)
     config = {"compute": {
-        "id": args.run_home.name, "workload": str(workload_path),
+        "id": args.run_home.name, "engine": args.engine, "workload": str(workload_path),
         "results_dir": str(args.run_home), "container_runtime": "docker",
         "worker_image": images["worker"]["image_id"],
         "analyzer": {"image": images["analyzer"]["image_id"], "config": str(analysis_config)},
@@ -1173,18 +1297,18 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
         "resource_limits": {"cpuset": [args.cpu], "memory": args.memory,
                             "swap_disabled": True},
         "source_paths": {"benchmarkoor": str(args.benchmarkoor_root),
-                         "evm2": str(args.evm2_root),
+                         args.engine: str(engine_root),
                          "execution_specs": str(args.execution_specs_root),
                          "evm_gasfit": str(args.evm_gasfit_root)},
     }}
     validate_controller_config(config, workload_path, analysis_config, SESSIONS, QUAL_REPS)
     save(directory / "compute.yaml", config)
 
-    smoke_workload = make_smoke_workload(corpus)
+    smoke_workload = make_smoke_workload(corpus, args.select is not None)
     save(directory / "smoke-workload.json", smoke_workload)
-    smoke_analysis = make_smoke_analysis(smoke_workload)
+    smoke_analysis = make_smoke_analysis(smoke_workload, args.engine)
     save(directory / "smoke-gasfit.yaml", smoke_analysis)
-    validate_analysis_config(directory / "smoke-gasfit.yaml", policy)
+    validate_analysis_config(directory / "smoke-gasfit.yaml", policy, args.engine)
     validate_models_target_only(smoke_analysis, smoke_workload)
     smoke_compute = dict(config["compute"])
     smoke_compute.update({
@@ -1307,7 +1431,7 @@ def run_audit(args: argparse.Namespace, directory: Path) -> None:
                         for key in ("case_id", "repetition", "phase", "session_id")),
                     "identity_mismatch", sample_id)
         audit.check(row.get("schema_version") == 2
-                    and row.get("execution_boundary") == BOUNDARY,
+                    and row.get("execution_boundary") == BOUNDARIES[args.engine],
                     "record_contract", sample_id)
         if row["status"] == "executed":
             audit.check(row.get("correctness_passed") is True, "correctness_failed", sample_id)
@@ -1318,9 +1442,10 @@ def run_audit(args: argparse.Namespace, directory: Path) -> None:
             for key, value in hashes.items():
                 previous = hash_state[case_id].setdefault(key, value)
                 audit.check(previous == value, "unstable_hash", (case_id, key))
-            audit.check(row.get("declared_gas") == GAS_CAP, "declared_gas", sample_id)
+            declared = declared_gas(cases[case_id])
+            audit.check(row.get("declared_gas") == declared, "declared_gas", sample_id)
             audit.check(isinstance(row.get("charged_gas"), int)
-                        and 0 < row["charged_gas"] <= GAS_CAP, "charged_gas", sample_id)
+                        and 0 < row["charged_gas"] <= declared, "charged_gas", sample_id)
             charged_by_case[case_id].add(row["charged_gas"])
             frozen = preflight.get(case_id)
             audit.check(frozen is not None, "frozen_preflight_row_missing", case_id)
@@ -1378,9 +1503,9 @@ def run_audit(args: argparse.Namespace, directory: Path) -> None:
                 "calibration_lane_missing", "no calibration qualification rows")
 
     sessions_dir = sorted(path for path in (run / "sessions").iterdir() if path.is_dir())
+    # Warmup samples run inside each qualification-NN process (planCampaign).
     expected_sessions = (["diagnostic-00"]
                          + [f"pilot-{index:02d}" for index in range(SESSIONS)]
-                         + [f"warmup-{index:02d}" for index in range(SESSIONS)]
                          + [f"qualification-{index:02d}" for index in range(SESSIONS)])
     audit.check(sorted(path.name for path in sessions_dir) == sorted(expected_sessions),
                 "session_layout", [sorted(expected_sessions),
@@ -1547,13 +1672,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   WORK=$(docker image inspect --format '{{.Id}}' benchmarkoor-compute-worker:pricing)
   ANA=$(docker image inspect --format '{{.Id}}' benchmarkoor-compute-analyzer:pricing)
   COMMON="--run-home $HOME_DIR --generator-image $GEN --worker-image $WORK \
-      --generation-cpuset 0-13,15-29 --fixture-format engine"
+      --engine evm2 --generation-cpuset 0-13,15-29 --fixture-format engine"
 
   python3 scripts/compute/pricing_campaign.py inventory $COMMON
   python3 scripts/compute/pricing_campaign.py grids $COMMON --generation-jobs 4
   python3 scripts/compute/pricing_campaign.py calibration $COMMON
   python3 scripts/compute/pricing_campaign.py assemble $COMMON
-  python3 -m evm_gasfit.recommendations create-config \
+  python3 -m evm_gasfit.recommendations create-config --client evm2 \
       --workload $HOME_DIR/corpus/workload.json --out $HOME_DIR/analysis-gasfit.yaml
   python3 scripts/compute/pricing_campaign.py config --run-home $HOME_DIR \
       --generator-image $GEN --worker-image $WORK --analyzer-image $ANA \
@@ -1577,12 +1702,28 @@ Generation runs in bounded parallel jobs on CPUs excluding 14 and 30, strictly
 before timed capture. A failed generation job preserves its attempt directory;
 rerun the same stage command with --continue to fill only the missing shards.
 Timed capture uses CPU 14 only. Failed measurements are never retried; audit
-every run and keep earlier attempts.""")
+every run and keep earlier attempts.
+
+EIP-7904 block layout: add `--workload-mode gas_budget` (optionally
+`--gas-budgets 100,120,...`, in Mgas) to every stage. Each target case is then
+one block whose budget EEST splits into 2^24-gas transactions; the calibration
+lane stays fixed-count. Use `--engine newl1` with the NewL1 block worker image,
+`--newl1-root` for its checkout, and `create-config --client newl1`.""")
     parser.add_argument("stage", choices=("inventory", "grids", "calibration", "assemble",
                                           "config", "audit"))
     parser.add_argument("--run-home", type=Path, required=True)
     parser.add_argument("--generator-image", required=True, help="Local sha256 generator image ID")
     parser.add_argument("--worker-image", required=True, help="Local sha256 worker image ID")
+    parser.add_argument("--engine", required=True, choices=sorted(BOUNDARIES),
+                        help="Engine the worker image executes; fixes the timed boundary")
+    parser.add_argument("--workload-mode", choices=WORKLOAD_MODES, default="fixed_count",
+                        help="fixed_count: one fixed-work transaction per case; "
+                             "gas_budget: one EIP-7904 gas-budget block per case")
+    parser.add_argument("--gas-budgets", default=",".join(map(str, DEFAULT_GAS_BUDGETS)),
+                        help="Block gas budgets in Mgas for --workload-mode gas_budget")
+    parser.add_argument("--select", default=None,
+                        help="pytest -k expression restricting the target variants "
+                             "(gas_budget mode only; the inventory pins the set)")
     parser.add_argument("--analyzer-image", help="Analyzer image reference or ID (config stage)")
     parser.add_argument("--controller", default="bin/benchmarkoor", help="Controller binary path")
     parser.add_argument("--generation-cpuset", default="0-13,15-29",
@@ -1600,6 +1741,8 @@ every run and keep earlier attempts.""")
                         default=Path(__file__).resolve().parents[2])
     parser.add_argument("--evm2-root", type=Path,
                         default=Path(__file__).resolve().parents[2] / "../evm2")
+    parser.add_argument("--newl1-root", type=Path,
+                        default=Path(__file__).resolve().parents[2] / "../bnbchain-newL1")
     parser.add_argument("--execution-specs-root", type=Path,
                         default=Path(__file__).resolve().parents[2] / "../execution-specs")
     parser.add_argument("--evm-gasfit-root", type=Path,
@@ -1614,6 +1757,15 @@ every run and keep earlier attempts.""")
     args.run_home = args.run_home.resolve(strict=True)
     args.benchmarkoor_root = args.benchmarkoor_root.resolve()
     args.evm2_root = args.evm2_root.resolve()
+    args.newl1_root = args.newl1_root.resolve()
+    require(re.fullmatch(r"[1-9][0-9]*(?:,[1-9][0-9]*)+", args.gas_budgets) is not None,
+            f"--gas-budgets must list at least two positive Mgas values: {args.gas_budgets}")
+    args.gas_budgets = [int(value) for value in args.gas_budgets.split(",")]
+    require(args.gas_budgets == sorted(set(args.gas_budgets)),
+            "--gas-budgets must be strictly increasing")
+    require(args.select is None or args.workload_mode == "gas_budget",
+            "--select restricts gas-budget campaigns only; fixed-count grids plan "
+            "per-variant counts over the pinned full corpus")
     args.execution_specs_root = args.execution_specs_root.resolve()
     args.evm_gasfit_root = args.evm_gasfit_root.resolve()
     for image in (args.generator_image, args.worker_image):

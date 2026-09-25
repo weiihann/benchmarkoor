@@ -17,12 +17,19 @@ const (
 
 	// maxComputeTxGasCap is Osaka's EIP-7825 transaction gas limit.
 	maxComputeTxGasCap uint64 = 1 << 24
+
+	// ComputeEngineEvm2 measures the evm2 transaction executor.
+	ComputeEngineEvm2 = "evm2"
+	// ComputeEngineNewL1 measures the NewL1 production block executor.
+	ComputeEngineNewL1 = "newl1"
 )
 
-// ComputeConfig configures an Osaka evm2 compute campaign.
+// ComputeConfig configures an Osaka compute campaign for one execution
+// engine.
 type ComputeConfig struct {
 	ID                string                  `yaml:"id" mapstructure:"id" json:"id"`
-	Workload          string                  `yaml:"workload,omitempty" mapstructure:"workload" json:"workload,omitempty"`
+	Engine            string                  `yaml:"engine" mapstructure:"engine" json:"engine"`
+	Workload          string                  `yaml:"workload,omitempty" mapstructure:"workload" json:"workload"`
 	ResultsDir        string                  `yaml:"results_dir,omitempty" mapstructure:"results_dir" json:"results_dir"`
 	ContainerRuntime  string                  `yaml:"container_runtime,omitempty" mapstructure:"container_runtime" json:"container_runtime"`
 	WorkerImage       string                  `yaml:"worker_image" mapstructure:"worker_image" json:"worker_image"`
@@ -110,8 +117,15 @@ func (c *ComputeConfig) Validate() error {
 		return err
 	}
 
-	if err := ValidateComputeQualificationPolicy(c.Analyzer.Config); err != nil {
+	if err := ValidateComputeQualificationPolicy(c.Analyzer.Config, c.Engine); err != nil {
 		return err
+	}
+
+	if !validComputeEngines[c.Engine] {
+		return fmt.Errorf(
+			"compute.engine: invalid value %q (must be %q or %q)",
+			c.Engine, ComputeEngineEvm2, ComputeEngineNewL1,
+		)
 	}
 
 	if c.ContainerRuntime != "docker" && c.ContainerRuntime != "podman" {
@@ -174,8 +188,17 @@ func (c *ComputeConfig) Validate() error {
 var validComputeSourcePaths = map[string]bool{
 	"benchmarkoor":    true,
 	"evm2":            true,
+	"newl1":           true,
 	"execution_specs": true,
 	"evm_gasfit":      true,
+}
+
+// validComputeEngines lists the execution engines a compute campaign can
+// measure. pkg/compute binds each engine to its required execution boundary,
+// so the two packages must agree on these names.
+var validComputeEngines = map[string]bool{
+	ComputeEngineEvm2:  true,
+	ComputeEngineNewL1: true,
 }
 
 var validComputeFamilies = map[string]bool{
@@ -251,8 +274,9 @@ func validateComputeFile(path, field string) error {
 }
 
 // ValidateComputeQualificationPolicy verifies that an evm-gasfit configuration
-// carries the explicit evidence gates required for a compute campaign.
-func ValidateComputeQualificationPolicy(path string) error {
+// carries the explicit evidence gates required for a compute campaign, and
+// analyzes the campaign engine's rows (its runtimes CSV client name).
+func ValidateComputeQualificationPolicy(path, engine string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("compute.analyzer.config: reading %q: %w", path, err)
@@ -263,19 +287,16 @@ func ValidateComputeQualificationPolicy(path string) error {
 		return fmt.Errorf("compute.analyzer.config: parsing YAML %q: %w", path, err)
 	}
 
-	clients, ok := document["clients"].([]any)
-	if !ok {
-		return fmt.Errorf("compute.analyzer.config: campaign analysis requires a clients list containing %q", "evm2")
-	}
-	hasEvm2Client := false
+	clients, _ := document["clients"].([]any)
+	hasEngineClient := false
 	for _, client := range clients {
-		if clientName, ok := client.(string); ok && clientName == "evm2" {
-			hasEvm2Client = true
+		if clientName, ok := client.(string); ok && clientName == engine {
+			hasEngineClient = true
 			break
 		}
 	}
-	if !hasEvm2Client {
-		return fmt.Errorf("compute.analyzer.config: campaign analysis requires a clients list containing %q", "evm2")
+	if !hasEngineClient {
+		return fmt.Errorf("compute.analyzer.config: campaign analysis requires a clients list containing %q", engine)
 	}
 
 	campaign, isCampaign := document["campaign"]

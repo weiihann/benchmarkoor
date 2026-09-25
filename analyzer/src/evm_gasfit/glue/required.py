@@ -98,9 +98,7 @@ PRICED_GLUE_SPECS: tuple[GlueOpcodeSpec, ...] = (
     # paired grower driver that subtracts it as a partner.
     GlueOpcodeSpec("ISZERO", "pure", "test_iszero_straight", ("ISZERO",)),
     GlueOpcodeSpec("JUMPDEST", "pure", "test_jumpdests_straight", ("JUMPDEST",)),
-    GlueOpcodeSpec(
-        "POP", "pure", "test_pop", ("POP",), test_opcode_filter="POP"
-    ),
+    GlueOpcodeSpec("POP", "pure", "test_pop", ("POP",), test_opcode_filter="POP"),
     GlueOpcodeSpec("STOP", "pure", None, ("STOP",), required=False),
     GlueOpcodeSpec("SWAP", "pure", "test_swap_straight", _SWAP_MEMBERS),
     # Cycle glue — jointly fit over the union of their driver rows, with
@@ -111,10 +109,10 @@ PRICED_GLUE_SPECS: tuple[GlueOpcodeSpec, ...] = (
     # correlated per-count costs. CALL lives here because its warm-call
     # driver carries its own sweep; its DUP/POP support is handled by the
     # joint design and pure anchoring respectively.
-    GlueOpcodeSpec("CALL", "cycle", "test_call_warm", ("CALL",), test_opcode_filter="CALL"),
     GlueOpcodeSpec(
-        "CALLDATASIZE", "cycle", "test_calldatasize", ("CALLDATASIZE",)
+        "CALL", "cycle", "test_call_warm", ("CALL",), test_opcode_filter="CALL"
     ),
+    GlueOpcodeSpec("CALLDATASIZE", "cycle", "test_calldatasize", ("CALLDATASIZE",)),
     GlueOpcodeSpec("DUP", "cycle", "test_dup_straight", _DUP_MEMBERS),
     GlueOpcodeSpec("GAS", "cycle", "test_gas_op_straight", ("GAS",)),
     GlueOpcodeSpec(

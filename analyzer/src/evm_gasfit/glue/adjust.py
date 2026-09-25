@@ -324,9 +324,7 @@ def compute_glue_adjustment(
                 }
                 shape_verified = _shape_verified(name, row, cand)
                 reliable = bool(cand.get("ratio_reliable", True))
-                glue_row = _glue_row_for(
-                    glue_results_df, str(row["client_name"]), name
-                )
+                glue_row = _glue_row_for(glue_results_df, str(row["client_name"]), name)
                 usable = (
                     shape_verified
                     and reliable
@@ -337,10 +335,7 @@ def compute_glue_adjustment(
                     and np.isfinite(float(glue_row["rsquared"]))
                     and float(glue_row["p_value"]) < p_threshold
                     and float(glue_row["rsquared"]) >= r2_threshold
-                    and (
-                        "isolated" not in glue_row.index
-                        or bool(glue_row["isolated"])
-                    )
+                    and ("isolated" not in glue_row.index or bool(glue_row["isolated"]))
                 )
                 if not usable:
                     unpriced.append(name)
@@ -351,9 +346,7 @@ def compute_glue_adjustment(
                 adjustment += ratio * float(glue_row["glue_runtime_ms"])
                 priced.append(name)
                 if glue_fits is not None:
-                    partner_fit = glue_fits.get(
-                        (row["client_name"], name)
-                    )
+                    partner_fit = glue_fits.get((row["client_name"], name))
                     if partner_fit is not None:
                         partners.append((ratio, partner_fit, name))
 
@@ -394,8 +387,7 @@ def compute_glue_adjustment(
             ]
         elif mismatches:
             coverage_reasons.append(
-                "bundle composition mismatch: "
-                + ", ".join(sorted(mismatches))
+                "bundle composition mismatch: " + ", ".join(sorted(mismatches))
             )
             still_unpriced = sorted(set(still_unpriced) | mismatches)
         unpriced = sorted(still_unpriced)
@@ -488,9 +480,7 @@ def compute_glue_adjustment(
             "propagated",
             conditional_rows,
         )
-    incomplete = sum(
-        1 for r in rows if not bool(r.get("glue_coverage_complete", True))
-    )
+    incomplete = sum(1 for r in rows if not bool(r.get("glue_coverage_complete", True)))
     if incomplete:
         _log.warning(
             "glue-coverage: %d adjusted estimate(s) have incomplete supporting-"

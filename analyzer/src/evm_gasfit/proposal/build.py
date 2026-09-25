@@ -92,7 +92,6 @@ def build_proposal(
         # identity the adjustment iterates: model_by in the spec's order.
         target_fits: dict[tuple, object] = {}
         if planned is not None:
-            specs_by_label = {s.source_label: s for s in config.resolved_models}
             for record in planned:
                 if record.fit is None:
                     continue
@@ -206,9 +205,7 @@ def build_proposal(
                 reasons.append(f"glue coverage incomplete: {detail}")
             status = str(row.get("glue_detection_status") or "evaluated")
             if status != "evaluated":
-                reasons.append(
-                    f"support-cost detection could not run ({status})"
-                )
+                reasons.append(f"support-cost detection could not run ({status})")
             if reasons:
                 downgrades.setdefault(key, []).extend(reasons)
         for key, reasons in adjusted_interval_reasons(

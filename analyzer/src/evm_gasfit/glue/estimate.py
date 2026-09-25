@@ -208,7 +208,10 @@ def _support_ratios(
     eps: float,
 ) -> dict[str, float]:
     """Return every count-correlated observed support on a driver slice."""
-    return {name: ratio for name, (_, ratio) in _support_evidence(slice_df, spec, eps).items()}
+    return {
+        name: ratio
+        for name, (_, ratio) in _support_evidence(slice_df, spec, eps).items()
+    }
 
 
 def _correlated_support(
@@ -227,7 +230,6 @@ def _correlated_support(
         return support
     allowed = {partner.name for partner in allowed_specs}
     return {name: ratio for name, ratio in support.items() if name in allowed}
-
 
 
 def _plan_partners(
@@ -574,6 +576,7 @@ def _cycle_fit(
         unmodeled = {spec.name: all_unmodeled for spec in cycle_specs}
     return fit, unmodeled, fitted_names
 
+
 def _mixed_fit(
     fixtures_df: pd.DataFrame,
     config: Config,
@@ -765,6 +768,7 @@ def compute_driver_support(
 
 _MIXED_A_PARTNER_TIERS: frozenset[str] = frozenset({"pure", "cycle"})
 _MIXED_B_PARTNER_TIERS: frozenset[str] = frozenset({"pure", "cycle", "mixed_a"})
+
 
 def estimate_glue(config: Config, fixtures_df: pd.DataFrame) -> GlueEstimateOutput:
     """Fit one NNLS per (client, canonical glue name) in four ordered passes.

@@ -26,7 +26,6 @@ coverage ledger that gates isolated recommendations:
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -120,7 +119,9 @@ def test_calibration_rows_never_reach_target_fits(tmp_path: Path) -> None:
         campaign_role="calibration",
     )
     all_fixtures = target_fixtures + calibration_fixtures + make_glue_driver_fixtures()
-    models = {"geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 5e-4})}
+    models = {
+        "geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 5e-4})
+    }
     config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
         tmp_path,
         fixtures=all_fixtures,
@@ -165,10 +166,12 @@ def test_calibration_rows_leak_changes_slope_without_lane_guard(
         extra_opcount_per_million={"SHL": 4_000_000.0},
         campaign_role=None,  # no lane marker → part of the target corpus
     )
-    all_fixtures = target_fixtures + contaminated + make_glue_driver_fixtures(
-        campaign_role=None
+    all_fixtures = (
+        target_fixtures + contaminated + make_glue_driver_fixtures(campaign_role=None)
     )
-    models = {"geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 5e-4})}
+    models = {
+        "geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 5e-4})
+    }
     config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
         tmp_path,
         fixtures=all_fixtures,
@@ -199,7 +202,9 @@ def test_unpriced_supporter_blocks_isolated_recommendation(tmp_path: Path) -> No
         extra_opcount_per_million={"SHL": 500_000.0},
     )
     all_fixtures = main_fixtures + make_glue_driver_fixtures()
-    models = {"geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 4.0e-5})}
+    models = {
+        "geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 4.0e-5})
+    }
     config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
         tmp_path,
         fixtures=all_fixtures,
@@ -450,7 +455,6 @@ def test_stop_bundle_requires_exact_aggregate_composition(
         assert "bundle composition mismatch" in adjusted["glue_coverage_reason"]
 
 
-
 def test_calldatacopy_unknown_shape_blocks_coverage() -> None:
     """Input-dependent copy length cannot transfer an unknown driver rate."""
     from evm_gasfit.glue.adjust import compute_glue_adjustment
@@ -504,7 +508,6 @@ def test_calldatacopy_unknown_shape_blocks_coverage() -> None:
     assert adjusted["glue_unpriced_opcodes"] == "CALLDATACOPY"
     assert not bool(adjusted["glue_coverage_complete"])
     assert "shape unverified" in adjusted["glue_coverage_reason"]
-
 
 
 @pytest.mark.parametrize(
@@ -576,6 +579,8 @@ def test_bundle_mismatch_withholds_adjusted_recommendation(
     assert bool(pd.isna(add_row["new_gas_rounded"]))
     qualification = _read(out_dir, "qualification.csv").iloc[0]
     assert qualification["adjusted_estimate_status"] == "inconclusive"
+
+
 # ----- Group self-exclusion for grouped families ---------------------------
 
 
@@ -602,7 +607,9 @@ def test_dup_family_target_never_subtracts_own_family(tmp_path: Path) -> None:
         extra_opcount_per_million={"DUP2": 1_000_000.0},
     )
     all_fixtures = main_fixtures + make_glue_driver_fixtures()
-    models = {"geth": ClientModel(intercept=10.0, slope=2.0e-5, glue_coefs={"DUP2": 1.0e-5})}
+    models = {
+        "geth": ClientModel(intercept=10.0, slope=2.0e-5, glue_coefs={"DUP2": 1.0e-5})
+    }
     config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
         tmp_path, fixtures=all_fixtures, models=models, config=config, seed=16
     )
@@ -642,7 +649,9 @@ def test_contaminated_pure_driver_blocks_downstream(tmp_path: Path) -> None:
     )
     models = {
         "geth": ClientModel(
-            intercept=50.0, slope=2.0e-5, glue_coefs={"ISZERO": 3.0e-5, "JUMPDEST": 2.0e-5}
+            intercept=50.0,
+            slope=2.0e-5,
+            glue_coefs={"ISZERO": 3.0e-5, "JUMPDEST": 2.0e-5},
         )
     }
     config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
@@ -701,6 +710,7 @@ def test_contaminated_cycle_block_invalidates_all_cycle_members(tmp_path: Path) 
     assert not cycle.empty
     assert not cycle["isolated"].fillna(False).any()
     assert cycle["unmodeled_partners"].astype(str).str.contains("SHL").all()
+
 
 def test_cycle_fit_subtracts_pure_partner(tmp_path: Path) -> None:
     """The joint cycle fit must charge ISZERO background to the ISZERO
@@ -781,7 +791,11 @@ def test_source_label_routes_candidates_across_colliding_specs(tmp_path: Path):
         params={"opcode": "ADD", "variant": "slow"},
         extra_opcount_per_million={"ISZERO": 500_000.0},
     )
-    models = {"geth": ClientModel(intercept=50.0, slope=0.0, glue_coefs={"ADD": 2.0e-5, "ISZERO": 4.0e-5})}
+    models = {
+        "geth": ClientModel(
+            intercept=50.0, slope=0.0, glue_coefs={"ADD": 2.0e-5, "ISZERO": 4.0e-5}
+        )
+    }
     config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
         tmp_path,
         fixtures=fast + slow + make_glue_driver_fixtures(),
@@ -825,9 +839,7 @@ def test_passes_thresholds_flags_curved_ratios() -> None:
     # Uniformly spaced quadratic counts make the mean local slope equal the
     # endpoint slope and the OLS slope, so endpoint-vs-OLS alone is insufficient.
     quadratic = 0.5 * opcount**2
-    keep, corr, ratio, endpoint, reliable = _passes_thresholds(
-        quadratic, opcount, 0.05
-    )
+    keep, corr, ratio, endpoint, reliable = _passes_thresholds(quadratic, opcount, 0.05)
     assert keep
     assert not reliable
     assert endpoint == pytest.approx(ratio)
@@ -853,7 +865,9 @@ def test_adjuster_blocks_unreliable_ratio(tmp_path: Path) -> None:
                 extra_opcounts={"SHL": bl * 1_000_000.0 * support},
             )
         )
-    models = {"geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 4.0e-5})}
+    models = {
+        "geth": ClientModel(intercept=50.0, slope=2.0e-5, glue_coefs={"SHL": 4.0e-5})
+    }
     config_yaml, runtimes_csv, opcounts_json, out_dir = write_standard_inputs(
         tmp_path,
         fixtures=fixtures + make_glue_driver_fixtures(),

@@ -201,7 +201,9 @@ def _passes_thresholds(
     d_count = np.diff(y_unique)
     d_opcount = np.diff(x_unique)
     endpoint = (
-        float(d_count.mean() / d_opcount.mean()) if d_opcount.mean() != 0 else float("nan")
+        float(d_count.mean() / d_opcount.mean())
+        if d_opcount.mean() != 0
+        else float("nan")
     )
     local_slopes = d_count / d_opcount if len(d_opcount) else np.array([])
     local_reliable = (
@@ -209,17 +211,10 @@ def _passes_thresholds(
         and len(local_slopes) > 0
         and np.all(np.isfinite(local_slopes))
         and np.all(local_slopes > 0)
-        and np.all(
-            np.abs(local_slopes - ratio) <= _RATIO_LINEARITY_TOLERANCE * ratio
-        )
+        and np.all(np.abs(local_slopes - ratio) <= _RATIO_LINEARITY_TOLERANCE * ratio)
     )
     keep = corr >= (1 - eps) and ratio >= _RATIO_FLOOR
-    reliable = (
-        keep
-        and np.isfinite(endpoint)
-        and endpoint > 0
-        and local_reliable
-    )
+    reliable = keep and np.isfinite(endpoint) and endpoint > 0 and local_reliable
     return keep, corr, ratio, endpoint, reliable
 
 
@@ -325,7 +320,13 @@ def compute_glue_opcodes_by_test(
     df = pd.DataFrame(rows)
     if df.empty:
         return pd.DataFrame(columns=cols)
-    sort_cols = ["source_label", "test_name", "target_opcode", *model_by_cols, "glue_opcode"]
+    sort_cols = [
+        "source_label",
+        "test_name",
+        "target_opcode",
+        *model_by_cols,
+        "glue_opcode",
+    ]
     sort_cols = [c for c in sort_cols if c in df.columns]
     return df.sort_values(sort_cols, kind="mergesort").reset_index(drop=True)
 

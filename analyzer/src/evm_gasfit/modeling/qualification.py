@@ -469,10 +469,13 @@ def apply_adjusted_statuses(
             out.loc[mask, "adjusted_estimate_status"] = STATUS_INCONCLUSIVE
             prev = out.loc[mask, "reasons"].astype(str)
             out.loc[mask, "reasons"] = prev.map(
-                lambda r: r + "".join(
-                    f"; {reason}" if reason not in r else "" for reason in reasons
+                lambda r: (
+                    r
+                    + "".join(
+                        f"; {reason}" if reason not in r else "" for reason in reasons
+                    )
+                    if r
+                    else "; ".join(reasons)
                 )
-                if r
-                else "; ".join(reasons)
             )
     return out

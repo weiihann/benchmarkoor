@@ -170,6 +170,12 @@ func (c *ComputeConfig) Validate() error {
 	if err := c.ResourceLimits.Validate("compute.resource_limits"); err != nil {
 		return err
 	}
+	// Compute sessions pin CPUs like benchmark instances but never drive
+	// cpufreq; accepting these fields would record settings that were not applied.
+	if limits := c.ResourceLimits; limits != nil &&
+		(limits.CPUFreq != "" || limits.CPUTurboBoost != nil || limits.CPUGovernor != "") {
+		return fmt.Errorf("compute.resource_limits: cpu_freq, cpu_turboboost, and cpu_freq_governor are not applied to compute campaigns")
+	}
 
 	for name, path := range c.SourcePaths {
 		if !validComputeSourcePaths[name] {

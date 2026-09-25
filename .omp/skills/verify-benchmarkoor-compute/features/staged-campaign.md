@@ -14,9 +14,9 @@
 
 ## How to get to it (user POV)
 
-- Run `python3 scripts/compute/pricing_campaign.py <stage> --run-home <home> --generator-image <sha256> --worker-image <sha256> --engine newl1 --workload-mode gas_budget --gas-budgets 120,240,360 [--select <-k expr>] --generation-cpuset 0-13,15-29 --fixture-format engine`.
+- Run `python3 scripts/compute/pricing_campaign.py <stage> --run-home <home> --generator-image <sha256> --worker-image <sha256> --engine newl1 --workload-mode gas_budget --gas-budgets 120,240,360 [--select <-k expr>] --fixture-format engine`.
 - `<stage>` is one of `inventory`, `grids`, `calibration`, `assemble`, `config`, `audit`.
-- The `config` stage also needs `--analyzer-image <sha256> --controller bin/benchmarkoor --newl1-root <checkout> --cpu 14 --memory 24g`.
+- The `config` stage also needs `--analyzer-image <sha256> --controller bin/benchmarkoor --newl1-root <checkout> --memory 24g`.
 
 ## Driving it with pricing_campaign.py
 

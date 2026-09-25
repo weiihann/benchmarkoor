@@ -96,8 +96,6 @@ MEMORY_SPEC = re.compile(r"[1-9][0-9]*(?:[bkmgBKMG])?\Z")
 HASH64 = re.compile(r"(?:0x)?[0-9a-fA-F]{64}\Z")
 BOUNDARIES = {"newl1": "newl1_block_execution"}
 ROLES = ("target", "calibration")
-TIMED_CPU = 14
-RESERVED_CPUS = (14, 30)
 SESSIONS = 8
 PILOT_REPS = 1
 WARMUP_REPS = 1
@@ -302,12 +300,17 @@ def docker_generation(args: argparse.Namespace, directory: Path, mount: str, ima
                       label: str) -> list[str]:
     return [
         "docker", "run", "--rm", "--network=none", "--pull=never",
-        f"--name={container_name(directory, label)}",
-        f"--cpuset-cpus={args.generation_cpuset}", f"--memory={args.generation_memory}",
+        f"--name={container_name(directory, label)}", *generation_cpuset_flag(args),
+        f"--memory={args.generation_memory}",
         f"--memory-swap={args.generation_memory}", "--user", f"{os.getuid()}:{os.getgid()}",
         "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", f"HOME={mount}/home",
         "--volume", f"{directory}:{mount}", image,
     ]
+
+
+def generation_cpuset_flag(args: argparse.Namespace) -> list[str]:
+    """Docker's CPU pin for generation; unpinned unless --generation-cpuset is set."""
+    return [f"--cpuset-cpus={args.generation_cpuset}"] if args.generation_cpuset else []
 
 
 # ------------------------------------------------------------- generation ---
@@ -445,7 +448,7 @@ def diagnose(args: argparse.Namespace, directory: Path, workload: dict[str, Any]
     save(directory / "request.json", request)
     argv = ["docker", "run", "--rm", "--network=none", "--pull=never",
             f"--name={container_name(directory, 'worker')}",
-            f"--cpuset-cpus={args.generation_cpuset}",
+            *generation_cpuset_flag(args),
             f"--memory={args.generation_memory}",
             f"--memory-swap={args.generation_memory}",
             "--user", f"{os.getuid()}:{os.getgid()}",
@@ -1179,9 +1182,8 @@ def validate_controller_config(config: dict[str, Any], workload: Path, analysis:
             "Analyzer image must be an exact local ID")
     require(workload.is_file() and analysis.is_file(), "Workload or analysis config missing")
     limits = compute["resource_limits"]
-    require(isinstance(limits["cpuset"], list) and limits["cpuset"]
-            and all(cpu in os.sched_getaffinity(0) for cpu in limits["cpuset"]),
-            "Capture CPU is unavailable")
+    require("cpuset" not in limits and "cpuset_count" not in limits,
+            "Capture uses the upstream default: no CPU pinning")
     require(limits["swap_disabled"] is True, "Swap must be disabled for capture")
     require(re.fullmatch(r"[1-9][0-9]*[smh]", compute["timeout"]) is not None, "Invalid timeout")
 
@@ -1292,8 +1294,7 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
         "seed": SEED, "sessions": SESSIONS,
         "pilot_repetitions": PILOT_REPS, "warmup_repetitions": WARMUP_REPS,
         "repetitions": QUAL_REPS, "timeout": args.timeout,
-        "resource_limits": {"cpuset": [args.cpu], "memory": args.memory,
-                            "swap_disabled": True},
+        "resource_limits": {"memory": args.memory, "swap_disabled": True},
         "source_paths": {"benchmarkoor": str(args.benchmarkoor_root),
                          "newl1": str(args.newl1_root),
                          "execution_specs": str(args.execution_specs_root)},
@@ -1390,8 +1391,9 @@ def run_audit(args: argparse.Namespace, directory: Path) -> None:
                 "worker_image_identity", "worker image differs from frozen config")
     audit.check(campaign["sessions"] == SESSIONS and campaign["seed"] == SEED,
                 "frozen_schedule", "campaign.json is not the frozen 8-session schedule")
-    audit.check(campaign["resource_limits"]["cpuset"] == [args.cpu],
-                "frozen_cpuset", "capture cpuset differs from the frozen CPU")
+    audit.check("cpuset" not in campaign["resource_limits"]
+                and "cpuset_count" not in campaign["resource_limits"],
+                "unpinned_capture", "capture pins CPUs; the frozen policy is unpinned")
 
     preflight: dict[str, dict[str, Any]] = {}
     for row in load_jsonl(corpus / "diagnostic.jsonl"):
@@ -1670,7 +1672,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   ANA=$(docker image inspect --format '{{.Id}}' benchmarkoor-compute-analyzer:pricing)
   MODE="--engine newl1 --workload-mode gas_budget --gas-budgets 120,240,360"
   COMMON="--run-home $HOME_DIR --generator-image $GEN --worker-image $WORK \
-      $MODE --generation-cpuset 0-13,15-29 --fixture-format engine"
+      $MODE --fixture-format engine"
 
   python3 scripts/compute/pricing_campaign.py inventory $COMMON
   python3 scripts/compute/pricing_campaign.py grids $COMMON --generation-jobs 4
@@ -1683,10 +1685,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
       --controller $ROOT/benchmarkoor/bin/benchmarkoor \
       --benchmarkoor-root $ROOT/benchmarkoor --newl1-root $ROOT/bnbchain-newL1 \
       --execution-specs-root $ROOT/execution-specs \
-      --cpu 14 --memory 24g
+      --memory 24g
   # glue-enabled 4-session smoke first (adjustment + rejection semantics;
   # sparse/inconclusive smoke prices are expected), then the frozen capture
-  # (timed CPU 14, nothing else running):
+  # (unpinned like upstream; keep the host otherwise idle):
   $ROOT/benchmarkoor/bin/benchmarkoor run --config $HOME_DIR/config/smoke-compute.yaml
   $ROOT/benchmarkoor/bin/benchmarkoor run --config $HOME_DIR/config/compute.yaml
   uv run --project analyzer python -m evm_gasfit.recommendations build \
@@ -1723,15 +1725,14 @@ fixed-work transaction. The calibration lane stays fixed-count in both modes."""
                              "(gas_budget mode only; the inventory pins the set)")
     parser.add_argument("--analyzer-image", help="Analyzer image reference or ID (config stage)")
     parser.add_argument("--controller", default="bin/benchmarkoor", help="Controller binary path")
-    parser.add_argument("--generation-cpuset", default="0-13,15-29",
-                        help="CPU affinity for generation/diagnostics; must exclude 14 and 30")
+    parser.add_argument("--generation-cpuset", default=None,
+                        help="Optional CPU affinity for generation/diagnostics; unpinned by default")
     parser.add_argument("--generation-memory", default="24g")
     parser.add_argument("--generation-jobs", type=int, default=4,
                         help="Bound on parallel fresh generation jobs (1..16)")
     parser.add_argument("--fixture-format", choices=("engine", "both"), default="engine",
                         help="Grid fixture format; engine is audited against the "
                              "dual-format inventory variant set")
-    parser.add_argument("--cpu", type=int, default=TIMED_CPU, help="Timed capture CPU")
     parser.add_argument("--memory", default="24g", help="Timed capture memory limit")
     parser.add_argument("--timeout", default="8h", help="Frozen campaign timeout")
     parser.add_argument("--benchmarkoor-root", type=Path,
@@ -1762,19 +1763,16 @@ fixed-work transaction. The calibration lane stays fixed-count in both modes."""
     for image in (args.generator_image, args.worker_image):
         require(IMAGE_ID.fullmatch(image) is not None,
                 f"Image must be a local immutable sha256 ID: {image}")
-    require(CPU_LIST.fullmatch(args.generation_cpuset) is not None,
-            f"Invalid generation CPU affinity: {args.generation_cpuset}")
-    generation_cpus = expand_cpuset(args.generation_cpuset)
-    require(generation_cpus <= set(os.sched_getaffinity(0)),
-            f"Generation CPUs unavailable to this process: {args.generation_cpuset}")
-    require(not (generation_cpus & set(RESERVED_CPUS)),
-            f"Generation cpuset must exclude the reserved capture CPUs {RESERVED_CPUS}")
+    if args.generation_cpuset is not None:
+        require(CPU_LIST.fullmatch(args.generation_cpuset) is not None,
+                f"Invalid generation CPU affinity: {args.generation_cpuset}")
+        require(expand_cpuset(args.generation_cpuset) <= set(os.sched_getaffinity(0)),
+                f"Generation CPUs unavailable to this process: {args.generation_cpuset}")
     for limit in (args.generation_memory, args.memory):
         require(MEMORY_SPEC.fullmatch(limit) is not None, f"Invalid memory limit: {limit}")
     require(1 <= args.generation_jobs <= 16, "Parallel generation jobs must be 1..16")
     if args.stage == "config":
         require(args.analyzer_image is not None, "--analyzer-image is required for config")
-        require(args.cpu in os.sched_getaffinity(0), f"Capture CPU {args.cpu} is unavailable")
     if args.stage == "audit":
         require(args.run is not None, "--run is required for audit")
     return args

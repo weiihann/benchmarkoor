@@ -45,6 +45,19 @@ func TestComputeConfigValidate(t *testing.T) {
 		require.NoError(t, (&Config{Compute: cfg}).Validate())
 	})
 
+	t.Run("cpu frequency settings are rejected because compute sessions never apply them", func(t *testing.T) {
+		turbo := false
+		for name, limits := range map[string]*ResourceLimits{
+			"cpu_freq":          {CPUFreq: "3600MHz"},
+			"cpu_turboboost":    {CPUTurboBoost: &turbo},
+			"cpu_freq_governor": {CPUGovernor: "performance"},
+		} {
+			cfg := valid()
+			cfg.ResourceLimits = limits
+			assert.ErrorContains(t, cfg.Validate(), "not applied to compute campaigns", name)
+		}
+	})
+
 	t.Run("campaign analysis requires an explicit frozen qualification policy", func(t *testing.T) {
 		cfg := valid()
 		path := filepath.Join(t.TempDir(), "analysis.yaml")

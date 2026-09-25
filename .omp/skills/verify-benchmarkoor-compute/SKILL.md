@@ -38,7 +38,7 @@ Read-only. It prints `READY` and exits 0 only when `bin/benchmarkoor` was built
 from the checked-out commit, Docker answers, the `:verify` analyzer image
 exists, and no `benchmarkoor-compute-worker-*` or `benchmarkoor-compute-analyze-*`
 container is running. A running compute container belongs to a campaign that
-is timing samples on a pinned CPU. Wait for it. Never stop a container this
+is timing samples, and any other load on the host skews them. Wait for it. Never stop a container this
 run did not start. Run the doctor first whenever anything looks off.
 
 ## Drive
@@ -52,7 +52,7 @@ The fastest end-to-end drive reanalyzes a copy of an archived run:
 
 It runs the doctor, copies the run (without `analysis/`) to
 `/tmp/benchmarkoor-verify/<run-id>/run`, runs `bin/benchmarkoor analyze` on the
-copy under `taskset -c 0`, and never writes the source run.
+copy, and never writes the source run.
 
 ## Evidence
 

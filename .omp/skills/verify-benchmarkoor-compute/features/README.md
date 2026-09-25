@@ -11,7 +11,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 ## Driving conventions
 
-- Run the controller under `taskset -c 0`. Timed samples use the CPU named in the config (`--cpu`, usually 14); keep it free of other work.
+- Workers run unpinned on every host CPU, which is upstream's default. Keep the host otherwise idle while a campaign times samples.
 - Refer to images by local `sha256:` ID in configs and stage flags. Tags are for building only.
 - Treat every command as literal. Keep flags and quoted selections unchanged.
 - Never stop a container, process, or campaign this run did not start.

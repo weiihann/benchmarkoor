@@ -87,6 +87,13 @@ The worker protocol is versioned under `pkg/compute/schema/`. A request names a
 workload, session, mode, and frozen list of samples. The engine's worker flushes
 one terminal JSONL record per requested sample.
 
+`compute.resource_limits` resolves CPUs exactly as benchmark instances do.
+Without `cpuset` or `cpuset_count`, the worker runs unpinned on every host CPU,
+which is the default. `cpuset_count` picks random CPUs that satisfy
+`cpuset_topology`. Compute campaigns reject `cpu_freq`, `cpu_turboboost`, and
+`cpu_freq_governor`, because their sessions do not apply them. Keep the host
+otherwise idle while a campaign times samples.
+
 ## Engines and measurement boundaries
 
 `compute.engine` selects the worker and fixes the boundary every result must

@@ -39,7 +39,6 @@ compute:
   repetitions: 5
   timeout: 20m
   resource_limits:
-    cpuset_count: 4
     memory: 16g
     swap_disabled: true
   source_paths:

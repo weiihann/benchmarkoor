@@ -25,8 +25,8 @@ if docker info >/dev/null 2>&1; then
     else
         blockers+=("benchmarkoor-compute-analyzer:verify missing: run build.sh")
     fi
-    # Compute containers pin the timed CPU; another campaign's samples would be
-    # perturbed, and this run's evidence would share a core with them.
+    # Compute workers run unpinned like upstream's default; any other load on the
+    # host perturbs a campaign's samples.
     busy="$(docker ps --format '{{.Names}}' | grep -E '^benchmarkoor-compute-(worker|analyze)-' || true)"
     if [[ -n "$busy" ]]; then
         printf 'busy compute containers:\n%s\n' "$busy"

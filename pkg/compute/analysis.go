@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/runner"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -122,7 +123,7 @@ func Analyze(ctx context.Context, log logrus.FieldLogger, runDir string, configO
 	if err := os.MkdirAll(reportsMount, 0o755); err != nil {
 		return finishAnalysis(runDir, attemptDir, status, "failed", fmt.Errorf("creating analysis report directory: %w", err))
 	}
-	limits, err := computeResourceLimits(campaign.ResourceLimits)
+	limits, err := runner.ContainerResourceLimits(campaign.ResourceLimits)
 	if err != nil {
 		return finishAnalysis(runDir, attemptDir, status, "failed", fmt.Errorf("resolving analyzer resource limits: %w", err))
 	}

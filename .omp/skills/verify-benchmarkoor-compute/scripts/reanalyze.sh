@@ -21,10 +21,10 @@ printf '{"run_id": "%s", "source_run": "%s", "scratch": "%s", "evidence": "%s"}\
 
 args=(analyze --run "$scratch/run")
 [[ -n "$override" ]] && args+=(--analysis-config "$(realpath "$override")")
-printf '%q ' taskset -c 0 "$root/bin/benchmarkoor" "${args[@]}" > "$evidence/command.txt"
+printf '%q ' "$root/bin/benchmarkoor" "${args[@]}" > "$evidence/command.txt"
 
 set +e
-taskset -c 0 "$root/bin/benchmarkoor" "${args[@]}" > "$evidence/controller.log" 2>&1 &
+"$root/bin/benchmarkoor" "${args[@]}" > "$evidence/controller.log" 2>&1 &
 echo $! > "$scratch/controller.pid"
 wait "$(cat "$scratch/controller.pid")"
 echo $? > "$evidence/controller.exit"

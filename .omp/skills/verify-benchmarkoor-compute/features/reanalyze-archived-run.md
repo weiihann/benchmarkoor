@@ -30,7 +30,7 @@ Preconditions:
 ## Gotchas
 
 - `analyze` runs the analyzer image recorded in the run's `campaign.json`, not this checkout's `:verify` image. To prove a change under `analyzer/`, capture a campaign with the new image or use [Build recommendations](./recommendations.md).
-- The analyzer container inherits the run's archived `resource_limits`, usually `cpuset: [14]`. It competes with any campaign timing on that CPU, which is why the doctor refuses while a compute container runs.
+- The analyzer container inherits the run's archived `resource_limits`. Runs captured with the default are unpinned, so reanalysis competes with any campaign timing on the host, which is why the doctor refuses while a compute container runs.
 - `inconclusive` exits 0. Read `analysis_status`, not the exit code.
 - Runs whose `campaign.json` lacks `engine` are rejected (`names no engine`). Only runs made by an engine-aware controller can be reanalyzed.
 - Running `analyze` directly on a real run home appends an attempt to it. Use the helper, which works on a copy.

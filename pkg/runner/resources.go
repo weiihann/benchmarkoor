@@ -64,6 +64,17 @@ func cpusetString(cpus []int) string {
 	return strings.Join(strs, ",")
 }
 
+// ContainerResourceLimits resolves cfg against this host's CPU topology exactly
+// as benchmark instances do: nil cfg leaves the container unpinned, and
+// cpuset_count picks random CPUs that satisfy cpuset_topology.
+func ContainerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, error) {
+	// A host without sysfs topology still resolves ModeAny, as in the runner.
+	topology, _ := cputopology.Read(cputopology.DefaultSysfsPath)
+	limits, _, err := buildContainerResourceLimits(cfg, topology)
+
+	return limits, err
+}
+
 // buildContainerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
 // topology is the host CPU topology, or empty when the host does not expose one.
 func buildContainerResourceLimits(

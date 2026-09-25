@@ -10,16 +10,15 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
+	"github.com/ethpandaops/benchmarkoor/pkg/runner"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -185,7 +184,7 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 	if err := writeRequests(runDir, plan); err != nil {
 		return runDir, recordCampaignFailure(runDir, &summary, err)
 	}
-	limits, err := computeResourceLimits(cfg.ResourceLimits)
+	limits, err := runner.ContainerResourceLimits(cfg.ResourceLimits)
 	if err != nil {
 		return runDir, recordCampaignFailure(runDir, &summary, err)
 	}
@@ -856,86 +855,6 @@ func updateSummaryCounts(summary *campaignSummary, results map[string]Result) {
 		}
 	}
 }
-
-func computeResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, error) {
-	if cfg == nil {
-		return nil, nil
-	}
-	limits := &docker.ResourceLimits{}
-	if len(cfg.Cpuset) > 0 {
-		ids := make([]string, len(cfg.Cpuset))
-		for index, id := range cfg.Cpuset {
-			ids[index] = strconv.Itoa(id)
-		}
-		limits.CpusetCpus = strings.Join(ids, ",")
-	} else if cfg.CpusetCount != nil {
-		if *cfg.CpusetCount > runtime.NumCPU() {
-			return nil, fmt.Errorf("compute cpuset_count %d exceeds available CPUs %d", *cfg.CpusetCount, runtime.NumCPU())
-		}
-		ids := make([]string, *cfg.CpusetCount)
-		for index := range ids {
-			ids[index] = strconv.Itoa(index)
-		}
-		limits.CpusetCpus = strings.Join(ids, ",")
-	}
-	if cfg.Memory != "" {
-		bytes, err := units.RAMInBytes(cfg.Memory)
-		if err != nil {
-			return nil, fmt.Errorf("parsing compute memory limit: %w", err)
-		}
-		limits.MemoryBytes = bytes
-		if cfg.IsSwapDisabled() {
-			limits.MemorySwapBytes = bytes
-			limits.MemorySwappiness = int64Pointer(0)
-		}
-	}
-	if cfg.BlkioConfig != nil {
-		var err error
-		if limits.BlkioDeviceReadBps, err = computeBPSLimits(cfg.BlkioConfig.DeviceReadBps); err != nil {
-			return nil, err
-		}
-		if limits.BlkioDeviceWriteBps, err = computeBPSLimits(cfg.BlkioConfig.DeviceWriteBps); err != nil {
-			return nil, err
-		}
-		limits.BlkioDeviceReadIOps, err = computeIOPSLimits(cfg.BlkioConfig.DeviceReadIOps)
-		if err != nil {
-			return nil, err
-		}
-		limits.BlkioDeviceWriteIOps, err = computeIOPSLimits(cfg.BlkioConfig.DeviceWriteIOps)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return limits, nil
-}
-
-func computeBPSLimits(devices []config.ThrottleDevice) ([]docker.BlkioThrottleDevice, error) {
-	limits := make([]docker.BlkioThrottleDevice, len(devices))
-	for index, device := range devices {
-		rate, err := units.RAMInBytes(device.Rate)
-		if err != nil {
-			return nil, fmt.Errorf("parsing compute block I/O rate for %q: %w", device.Path, err)
-		}
-		limits[index] = docker.BlkioThrottleDevice{Path: device.Path, Rate: uint64(rate)}
-	}
-	return limits, nil
-}
-
-func computeIOPSLimits(devices []config.ThrottleDevice) ([]docker.BlkioThrottleDevice, error) {
-	limits := make([]docker.BlkioThrottleDevice, len(devices))
-	for index, device := range devices {
-		rate, err := strconv.ParseUint(device.Rate, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("parsing compute block I/O IOPS rate for %q: %w", device.Path, err)
-		}
-		limits[index] = docker.BlkioThrottleDevice{Path: device.Path, Rate: rate}
-	}
-
-	return limits, nil
-}
-
-func int64Pointer(value int64) *int64 { return &value }
 
 func workloadSelection(workload *Workload) map[string]any {
 	cases := make([]map[string]any, 0, len(workload.Cases))

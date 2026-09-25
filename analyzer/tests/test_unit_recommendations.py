@@ -2,9 +2,9 @@
 
 These exercise the pricing catalog boundaries (exact Osaka current-charge
 formulas), calibration exclusion, missing-coverage blocking, thresholds,
-the keccak cache limitation, and the budget-aware lane -- the behaviors the
-600M recommendation policy depends on. The module is loaded standalone so
-the tests run even where the heavy analysis stack is absent.
+and the budget-aware lane -- the behaviors the 600M recommendation policy
+depends on. The module is loaded standalone so the tests run even where the
+heavy analysis stack is absent.
 """
 
 from __future__ import annotations
@@ -169,7 +169,7 @@ def _keccak_witness_params(input_length: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_keccak_cache_boundary_and_charges() -> None:
+def test_keccak_charges_round_up_to_words() -> None:
     cases = [
         _case(
             "t/k.py::test_keccak_workload_witness[fork_Osaka--input_length_87-opcount_1]",
@@ -180,7 +180,6 @@ def test_keccak_cache_boundary_and_charges() -> None:
     ]
     info = rec.classify_variant(cases[0]["id"], cases)
     assert info.current_charge_gas == 30 + 6 * 3  # 87B rounds to 3 words
-    assert info.keccak_cache_affected is True
 
     cases[0] = _case(
         "t/k.py::test_keccak_workload_witness[fork_Osaka--input_length_136-opcount_1]",
@@ -190,7 +189,6 @@ def test_keccak_cache_boundary_and_charges() -> None:
     )
     info = rec.classify_variant(cases[0]["id"], cases)
     assert info.current_charge_gas == 60
-    assert info.keccak_cache_affected is False
 
     cases[0] = _case(
         "t/k.py::test_keccak_workload_witness[fork_Osaka--input_length_0-opcount_1]",
@@ -200,7 +198,6 @@ def test_keccak_cache_boundary_and_charges() -> None:
     )
     info = rec.classify_variant(cases[0]["id"], cases)
     assert info.current_charge_gas == 30
-    assert info.keccak_cache_affected is False
 
 
 def test_exp_byte_length_variants() -> None:
@@ -319,7 +316,7 @@ def test_create_config_excludes_calibration_from_every_model() -> None:
             parameters={"campaign_role": "calibration"},
         )
     )
-    config, sidecar = rec.build_analysis_config(workload, client="evm2")
+    config, sidecar = rec.build_analysis_config(workload, client="newl1")
     assert len(config["models"]["custom"]) == 2
     assert sidecar["campaign_roles"]["calibration_cases"] == 1
     assert sidecar["campaign_roles"]["calibration_priced"] == 0
@@ -338,7 +335,7 @@ def test_create_config_rejects_calibration_matching_a_target_filter() -> None:
         )
     )
     with pytest.raises(rec.WorkloadError, match="calibration-lane case"):
-        rec.build_analysis_config(workload, client="evm2")
+        rec.build_analysis_config(workload, client="newl1")
 
 
 def test_load_workload_rejects_foreign_fork_and_schema(tmp_path: Path) -> None:
@@ -361,7 +358,7 @@ def test_load_workload_rejects_foreign_fork_and_schema(tmp_path: Path) -> None:
 
 
 def test_create_config_freezes_policy_constants() -> None:
-    config, _ = rec.build_analysis_config(_mini_workload(), client="evm2")
+    config, _ = rec.build_analysis_config(_mini_workload(), client="newl1")
     assert config["glue_adjustment"] == {"enabled": True}
     assert config["modeling"]["bootstrap_iterations"] == 1000
     assert config["modeling"]["random_seed"] == 20260922
@@ -372,7 +369,7 @@ def test_create_config_freezes_policy_constants() -> None:
     assert config["pricing_scenarios"] == [
         {"name": "osaka-600m", "anchor_rate": 600_000_000, "margin_pct": 0.0}
     ]
-    assert config["clients"] == ["evm2"]
+    assert config["clients"] == ["newl1"]
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +498,7 @@ def _synthetic_analysis(tmp_path: Path, config: dict) -> Path:
         results_rows.append(
             {
                 "test_name": model["test_name"],
-                "client_name": "evm2",
+                "client_name": "newl1",
                 "target_opcode": model["target_operation"],
                 "source_label": label,
                 "target_coef_runtime_ms": "0.0001",
@@ -517,7 +514,7 @@ def _synthetic_analysis(tmp_path: Path, config: dict) -> Path:
             proposal_rows.append(
                 {
                     "gas_param": param_of(model),
-                    "client_name": "evm2",
+                    "client_name": "newl1",
                     "runtime_ms": "0.00008",
                     "conf_int_low": "0.000075",
                     "conf_int_high": "0.00011",
@@ -536,7 +533,7 @@ def _synthetic_analysis(tmp_path: Path, config: dict) -> Path:
             proposal_rows.append(
                 {
                     "gas_param": param_of(model),
-                    "client_name": "evm2",
+                    "client_name": "newl1",
                     "runtime_ms": "0.00008",
                     "conf_int_low": "0.000075",
                     "conf_int_high": "0.00011",
@@ -555,7 +552,7 @@ def _synthetic_analysis(tmp_path: Path, config: dict) -> Path:
                 "source_label": label,
                 "test_name": model["test_name"],
                 "target_opcode": model["target_operation"],
-                "client_name": "evm2",
+                "client_name": "newl1",
                 "status": "qualified",
                 "reasons": "",
                 "adjusted_estimate_status": adjusted_status,
@@ -604,7 +601,7 @@ def test_build_end_to_end_reports_every_variant_and_group(tmp_path: Path) -> Non
             parameters={"reason": "no fixed-count generator"},
         )
     )
-    config, _ = rec.build_analysis_config(workload, client="evm2")
+    config, _ = rec.build_analysis_config(workload, client="newl1")
     analysis = _synthetic_analysis(tmp_path, config)
     diagnostics = tmp_path / "samples.jsonl"
     blake_variant = "t/b.py::test_blake2f_benchmark[fork_Osaka--num_rounds_24]"
@@ -677,7 +674,7 @@ def test_build_end_to_end_reports_every_variant_and_group(tmp_path: Path) -> Non
 
 def test_build_blocks_group_when_glue_coverage_incomplete(tmp_path: Path) -> None:
     workload = _mini_workload()
-    config, _ = rec.build_analysis_config(workload, client="evm2")
+    config, _ = rec.build_analysis_config(workload, client="newl1")
     analysis = _synthetic_analysis(tmp_path, config)
     # Corrupt coverage on the ADD proposal row: STOP detected but unpriced.
     rows = list(csv.DictReader((analysis / "new_gas_all_params.csv").open(newline="")))
@@ -706,7 +703,7 @@ def test_build_blocks_group_when_glue_coverage_incomplete(tmp_path: Path) -> Non
 
 def test_build_marks_missing_glue_columns_as_unknown_coverage(tmp_path: Path) -> None:
     workload = _mini_workload()
-    config, _ = rec.build_analysis_config(workload, client="evm2")
+    config, _ = rec.build_analysis_config(workload, client="newl1")
     analysis = _synthetic_analysis(tmp_path, config)
     rows = list(csv.DictReader((analysis / "new_gas_all_params.csv").open(newline="")))
     for row in rows:
@@ -726,7 +723,7 @@ def test_build_marks_missing_glue_columns_as_unknown_coverage(tmp_path: Path) ->
 
 def test_threshold_boundary_at_2x(tmp_path: Path) -> None:
     workload = _mini_workload()
-    config, _ = rec.build_analysis_config(workload, client="evm2")
+    config, _ = rec.build_analysis_config(workload, client="newl1")
     analysis = _synthetic_analysis(tmp_path, config)
     rows = list(csv.DictReader((analysis / "new_gas_all_params.csv").open(newline="")))
     # ADD current 3 gas: lower bound exactly 6.0 gas -> 2.0x triggers.
@@ -757,7 +754,7 @@ def test_threshold_boundary_at_2x(tmp_path: Path) -> None:
 
 def test_no_decreases_candidate_floors_at_current(tmp_path: Path) -> None:
     workload = _mini_workload()
-    config, _ = rec.build_analysis_config(workload, client="evm2")
+    config, _ = rec.build_analysis_config(workload, client="newl1")
     analysis = _synthetic_analysis(tmp_path, config)
     rows = list(csv.DictReader((analysis / "new_gas_all_params.csv").open(newline="")))
     for row in rows:
@@ -777,63 +774,6 @@ def test_no_decreases_candidate_floors_at_current(tmp_path: Path) -> None:
         v for v in document["variants"] if "opcode_ADD" in v["variant_id"]
     )
     assert variant_row["conservative_candidate_gas"] == 3.0  # floor at current
-
-
-def test_cached_keccak_variant_never_drives_increase(tmp_path: Path) -> None:
-    cached_variant = "t/k.py::test_keccak_workload_witness[fork_Osaka--input_length_32]"
-    uncached_variant = (
-        "t/k.py::test_keccak_workload_witness[fork_Osaka--input_length_136]"
-    )
-    cached_case = cached_variant[:-1] + "-opcount_1]"
-    uncached_case = uncached_variant[:-1] + "-opcount_1]"
-    workload = _workload(
-        [
-            _case(
-                cached_case,
-                "keccak",
-                "KECCAK256",
-                parameters=_keccak_witness_params(32),
-            ),
-            _case(
-                uncached_case,
-                "keccak",
-                "KECCAK256",
-                parameters=_keccak_witness_params(136),
-            ),
-        ]
-    )
-    config, _ = rec.build_analysis_config(workload, client="evm2")
-    analysis = _synthetic_analysis(tmp_path, config)
-    rows = list(csv.DictReader((analysis / "new_gas_all_params.csv").open(newline="")))
-    # Cached variant: enormous lower bound; uncached: modest evidence.
-    by_param = {row["gas_param"]: row for row in rows}
-    cached_param = rec.variant_param(cached_variant, "KECCAK256")
-    uncached_param = rec.variant_param(uncached_variant, "KECCAK256")
-    by_param[cached_param]["runtime_ms"] = "0.015"
-    by_param[cached_param]["conf_int_low"] = "0.01"
-    by_param[cached_param]["conf_int_high"] = "0.02"
-    by_param[uncached_param]["runtime_ms"] = "0.0000015"
-    by_param[uncached_param]["conf_int_low"] = "0.000001"
-    by_param[uncached_param]["conf_int_high"] = "0.000002"
-    with (analysis / "new_gas_all_params.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-    document = rec.build_recommendations(workload, analysis, None)
-    groups = {g["pricing_group"]: g for g in document["pricing_groups"]}
-    keccak = groups["OPCODE_KECCAK256"]
-    # The absurd cached slope must not fire the trigger; the modest uncached
-    # evidence holds current pricing.
-    assert keccak["increase_trigger"] is False
-    assert cached_variant in keccak["inherent_keccak_cache_variants"]
-    cached_row = next(
-        v for v in document["variants"] if cached_variant in v["variant_id"]
-    )
-    assert cached_row["policy_decision"] == "blocked-coverage"
-    assert any(
-        "keccak cache" in m or "keccak input" in m
-        for m in cached_row["missing_coverage"]
-    )
 
 
 def test_resolved_input_sidecar_validation_and_application() -> None:
@@ -1052,7 +992,7 @@ def test_build_uses_embedded_config_json_yaml_and_hash_validation(
     import yaml
 
     workload = _mini_workload()
-    config, _ = rec.build_analysis_config(workload, client="evm2")
+    config, _ = rec.build_analysis_config(workload, client="newl1")
     analysis = _synthetic_analysis(tmp_path, config)
     status_path = analysis / "analysis_status.json"
     status = json.loads(status_path.read_text())

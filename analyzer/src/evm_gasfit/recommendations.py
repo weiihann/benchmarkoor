@@ -11,7 +11,7 @@ CLI
 ::
 
     python -m evm_gasfit.recommendations create-config \\
-        --workload WORKLOAD.json --client evm2 --out analysis-gasfit.yaml \\
+        --workload WORKLOAD.json --client newl1 --out analysis-gasfit.yaml \\
         [--anchor-rate 600000000] [--min-sessions 4]
 
     python -m evm_gasfit.recommendations build \\
@@ -102,16 +102,6 @@ ALLOWED_FAMILIES = frozenset(
 # ``-opcount_<n>K``, gas-budget (EIP-7904 layout) exports in
 # ``-benchmark-gas-value_<n>M``. Stripping it yields the variant identity.
 COUNT_TOKEN_RE = re.compile(r"-(?:opcount|benchmark-gas-value)_[^\]]+")
-# evm2's worker (crates/cli/Cargo.toml:35) enables alloy-primitives'
-# ``keccak-cache-global``; alloy v1.7.3's process-global keccak cache accepts
-# inputs of at most MAX_INPUT_LEN = 128 - 32 - 1 - 8 = 87 bytes
-# (crates/primitives/src/utils/keccak_cache.rs). Inputs of 1..87 bytes hashed
-# repeatedly within one worker process can be served warm from that cache --
-# the per-session warmup reset does not clear it -- so those slopes are NOT
-# worst-case evidence. Empty input and inputs > 87 bytes bypass the cache.
-# Sources: alloy-rs/core v1.7.3 keccak_cache.rs; evm2
-# crates/evm2/src/interpreter/instructions/crypto.rs.
-KECCAK_CACHE_MAX_INPUT_BYTES = 87
 
 # ---------------------------------------------------------------------------
 # Osaka current-charge tables.
@@ -742,8 +732,6 @@ class VariantInfo:
     linear_params: tuple[str, int, str, int] | None = None
     # MSM groups: (mul param, mul gas, table, max discount).
     input_bytes: int | None = None  # raw input size where meaningful
-    keccak_cache_affected: bool = False
-    keccak_input_bytes: int | None = None
     reasons: list[str] = field(default_factory=list)
     case_ids: list[str] = field(default_factory=list)
     count_key: str | None = None
@@ -861,8 +849,6 @@ def classify_variant(
         )
         info.units = _words(msg_bytes)
         info.input_bytes = msg_bytes
-        info.keccak_input_bytes = msg_bytes
-        info.keccak_cache_affected = 1 <= msg_bytes <= KECCAK_CACHE_MAX_INPUT_BYTES
         info.current_charge_gas = (
             OSAKA_GAS_COSTS["OPCODE_KECCAK256_BASE"]
             + OSAKA_GAS_COSTS["OPCODE_KECCAK256_PER_WORD"] * info.units
@@ -1322,7 +1308,6 @@ def _sidecar_row(
         "current_charge_gas": info.current_charge_gas,
         "units": info.units,
         "input_bytes": info.input_bytes,
-        "keccak_cache_affected": info.keccak_cache_affected,
         "model_param": param,
         "filter_prefix": prefix,
         "target_operation_count_source": info.count_key
@@ -1648,13 +1633,6 @@ def _coverage_blockers(info: VariantInfo, ev: VariantEvidence | None) -> list[st
         blockers.append("adjusted confidence bounds are not ordered around point")
     if info.current_charge_gas is None:
         blockers.append("current charge unresolved: " + "; ".join(info.reasons))
-    if info.keccak_cache_affected:
-        blockers.append(
-            f"keccak input {info.keccak_input_bytes}B <= "
-            f"{KECCAK_CACHE_MAX_INPUT_BYTES}B: evm2's process-global "
-            "alloy keccak cache can serve these warm within a session; "
-            "not worst-case evidence"
-        )
     return blockers
 
 
@@ -1786,9 +1764,6 @@ def _budget_need_gas(
         return None
     if info.current_charge_gas is None:
         budget.abstain_reason = "current target charge unresolved"
-        return None
-    if info.keccak_cache_affected:
-        budget.abstain_reason = "short-input keccak cache risk excludes budget evidence"
         return None
     raw_upper_gas = gas_from_ns(ns_from_ms(ev.raw_high_ms), anchor_rate)
     residual = raw_upper_gas - float(budget.other_marginal_gas)
@@ -2120,13 +2095,6 @@ def _apply_resolved_inputs(
         del base_param
         info.units = _words(input_bytes)
         info.input_bytes = input_bytes
-        info.keccak_input_bytes = (
-            input_bytes if info.pricing_group == "OPCODE_KECCAK256" else None
-        )
-        info.keccak_cache_affected = (
-            info.pricing_group == "OPCODE_KECCAK256"
-            and 1 <= input_bytes <= KECCAK_CACHE_MAX_INPUT_BYTES
-        )
         info.current_charge_gas = base_gas + per_unit * info.units
         info.reasons = [
             reason
@@ -2273,24 +2241,6 @@ def build_recommendations(
         },
         "limitations": [
             {
-                "id": "keccak-global-cache",
-                "description": (
-                    "evm2 enables alloy-primitives keccak-cache-global "
-                    "(crates/cli/Cargo.toml:35); alloy v1.7.3's process-"
-                    "global cache holds inputs of at most "
-                    f"{KECCAK_CACHE_MAX_INPUT_BYTES} bytes "
-                    "(MAX_INPUT_LEN = 128 - 32 - 1 - 8). Repeated "
-                    "deterministic inputs of 1..87 bytes can be served warm "
-                    "across samples within a worker session, so those "
-                    "slopes are not worst-case evidence and never drive "
-                    "increase candidates here."
-                ),
-                "sources": [
-                    "alloy-rs/core v1.7.3 crates/primitives/src/utils/keccak_cache.rs",
-                    "evm2 crates/evm2/src/interpreter/instructions/crypto.rs",
-                ],
-            },
-            {
                 "id": "envelope-not-joint-ci",
                 "description": (
                     "Group candidates that combine several per-variant 95% "
@@ -2339,7 +2289,6 @@ def _variant_row(
         "current_charge_gas": info.current_charge_gas,
         "model_param": ev.model_param if ev else None,
         "evidence_source_ids": _source_ids(info, ev, budget),
-        "keccak_cache_affected": info.keccak_cache_affected,
         "reasons": list(info.reasons),
     }
     if info.group_kind == GROUP_KIND_UNSUPPORTED:
@@ -2403,9 +2352,7 @@ def _variant_row(
     point_gas = gas(ev.adjusted_point_ms) if ev else None
     ratio = (
         lower_gas / info.current_charge_gas
-        if lower_gas is not None
-        and info.current_charge_gas
-        and not info.keccak_cache_affected
+        if lower_gas is not None and info.current_charge_gas
         else None
     )
     candidate = None
@@ -2567,10 +2514,6 @@ def _group_report(
         for info, ev, upper in contributing
         if not blockers[info.variant_id] and info.current_charge_gas
     ]
-    # Cached-path variants cannot support worst-case evidence. They remain
-    # explicit group coverage blockers, while uncached evidence can still
-    # produce a clearly evidence-supported (non-deployable) candidate.
-    cached = [info.variant_id for info in ready if info.keccak_cache_affected]
     missing = {
         variant_id: reasons for variant_id, reasons in blockers.items() if reasons
     }
@@ -2598,7 +2541,7 @@ def _group_report(
             and info.current_charge_gas is not None
             and upper <= info.current_charge_gas
             for info, _ev, upper in usable
-        ) and len(usable) + len(cached) == len(ready)
+        ) and len(usable) == len(ready)
         if increase:
             decision = "increase_candidate" if deployable else "blocked-coverage"
             reason = (
@@ -2613,9 +2556,9 @@ def _group_report(
         elif all_adequate:
             decision = "keep_proven_adequate" if deployable else "blocked-coverage"
             reason = (
-                "every uncached variant's qualified adjusted 95% upper "
+                "every variant's qualified adjusted 95% upper "
                 "bound is <= its current charge: proven adequate at the "
-                "anchor over the sampled uncached domain"
+                "anchor over the sampled domain"
                 + ("" if deployable else "; coverage unresolved")
             )
         else:
@@ -2625,12 +2568,6 @@ def _group_report(
                 "kept by policy (not a proven 600M adequacy claim)"
                 + ("" if deployable else "; coverage unresolved")
             )
-    if cached:
-        reason += (
-            f"; {len(cached)} short-input variant(s) (1..87 bytes) are "
-            "cache-affected in this worker and excluded from worst-case "
-            "evidence; coverage remains unresolved"
-        )
 
     report: dict[str, Any] = {
         "pricing_group": group,
@@ -2641,7 +2578,6 @@ def _group_report(
         "deployable": deployable,
         "reason": reason,
         "missing_coverage": missing,
-        "inherent_keccak_cache_variants": cached,
         "increase_trigger": increase,
         "sensitivity_triggers": {
             f"{threshold}x": _trigger_increase(usable, anchor_rate, threshold)
@@ -2862,7 +2798,7 @@ def _group_report(
         report["budget_aware_candidate"] = {
             "abstained": True,
             "reason": "no variant satisfied budget-lane qualification, "
-            "affinity, current-charge, and cache-risk conditions",
+            "affinity, and current-charge conditions",
         }
 
     budget_candidate = report.get("budget_aware_candidate")
@@ -2923,7 +2859,6 @@ _CSV_COLUMNS = [
     "policy_reason",
     "evidence_source_ids",
     "missing_coverage",
-    "keccak_cache_affected",
 ]
 
 

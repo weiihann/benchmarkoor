@@ -27,7 +27,7 @@ def _manifest(*, hardware: str = "r7a.4xlarge") -> dict[str, object]:
         "software": {"revision": "candidate"},
         "hardware": {"instance": hardware},
         "workloads": {"corpus": "osaka-compute-v2"},
-        "boundary": "evm2_transaction_execution",
+        "boundary": "newl1_block_execution",
         "gas_schedule": "osaka",
     }
 
@@ -441,11 +441,11 @@ def test_campaign_comparison_rejects_unavailable_schedule_identity(
         manifest["comparison_factors"] = {
             "hardware": manifest["hardware"],
             "workload": "osaka-compute-v2",
-            "execution_boundary": "evm2_transaction_execution",
+            "execution_boundary": "newl1_block_execution",
             "gas_schedule": {
                 "active_schedule_identity": {
                     "status": "unavailable",
-                    "reason": "evm2 worker protocol does not expose a schedule",
+                    "reason": "newl1 worker protocol does not expose a schedule",
                 }
             },
         }

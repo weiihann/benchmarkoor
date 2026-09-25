@@ -10,11 +10,10 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 evm2_root="${repo_root}/../evm2"
 execution_specs_root="${repo_root}/../execution-specs"
-gasfit_root="${repo_root}/../evm-gasfit"
 results_dir="${COMPUTE_SMOKE_RESULTS_DIR:-${repo_root}/results/compute-smoke-$(date -u +%Y%m%dT%H%M%SZ)}"
 binary="${BENCHMARKOOR_BIN:-${repo_root}/bin/benchmarkoor}"
 
-for required_dir in "${evm2_root}" "${execution_specs_root}" "${gasfit_root}"; do
+for required_dir in "${evm2_root}" "${execution_specs_root}"; do
     if [[ ! -d "${required_dir}" ]]; then
         printf 'compute smoke requires sibling checkout: %s\n' "${required_dir}" >&2
         exit 1
@@ -107,13 +106,12 @@ compute:
     benchmarkoor: ${repo_root}
     evm2: ${evm2_root}
     execution_specs: ${execution_specs_root}
-    evm_gasfit: ${gasfit_root}
 YAML
 
 printf 'Building pinned local compute images.\n'
 docker build -f "${repo_root}/Dockerfile.compute-worker" -t benchmarkoor-compute-worker:smoke "${evm2_root}"
 docker build --build-context execution-specs="${execution_specs_root}" -f "${repo_root}/Dockerfile.compute-generator" -t benchmarkoor-compute-generator:smoke "${repo_root}"
-docker build --build-context evm-gasfit="${gasfit_root}" -f "${repo_root}/Dockerfile.compute-analyzer" -t benchmarkoor-compute-analyzer:smoke "${repo_root}"
+docker build -f "${repo_root}/Dockerfile.compute-analyzer" -t benchmarkoor-compute-analyzer:smoke "${repo_root}"
 
 if [[ ! -x "${binary}" ]]; then
     make -C "${repo_root}" build-core

@@ -48,3 +48,9 @@ summary-*.md
 /node_modules/
 /package.json
 /package-lock.json
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/

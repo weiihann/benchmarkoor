@@ -2,8 +2,8 @@
 
 A compute campaign exports fixed-work or gas-budget Osaka workloads through
 execution-specs, executes them with evm2 or NewL1, archives every sample, and
-invokes evm-gasfit. The pipeline does not reimplement workload generation, EVM
-execution, or modeling.
+fits the results with the in-tree evm-gasfit analyzer (`analyzer/`). The
+pipeline does not reimplement workload generation or EVM execution.
 
 The campaign is compute-only. It does not change gas constants, recommend a
 block gas limit, or price memory, storage, state growth, or network capacity.
@@ -43,13 +43,14 @@ The allowance is a generation bound, not the observed target count.
 
 ## Build inputs
 
-Use pinned sibling checkouts:
+Use pinned sibling checkouts for the worker and generator; the analyzer builds
+from this repository:
 
 | Image | Dockerfile | Build input |
 | --- | --- | --- |
 | evm2 worker | `Dockerfile.compute-worker` | Primary context `../evm2` |
 | workload generator | `Dockerfile.compute-generator` | Named context `execution-specs=../execution-specs` |
-| analyzer | `Dockerfile.compute-analyzer` | Named context `evm-gasfit=../evm-gasfit` |
+| analyzer | `Dockerfile.compute-analyzer` | This repository's `analyzer/` |
 
 Build the images from the selected worktrees:
 
@@ -64,15 +65,14 @@ docker build \
   -t benchmarkoor-compute-generator:local .
 
 docker build \
-  --build-context evm-gasfit=../evm-gasfit \
   -f Dockerfile.compute-analyzer \
   -t benchmarkoor-compute-analyzer:local .
 ```
 
 `source_paths` in the campaign configuration records revisions, dirty-state
-evidence, and dependency lock hashes for benchmarkoor, evm2, execution-specs,
-and evm-gasfit. Retain patches and untracked files separately when a source
-worktree is dirty.
+evidence, and dependency lock hashes for benchmarkoor (which includes the
+analyzer), evm2, and execution-specs. Retain patches and untracked files
+separately when a source worktree is dirty.
 
 ## Run a campaign
 
@@ -208,5 +208,6 @@ scripts/compute/smoke.sh
 The script builds the three pinned local images, exports twenty ADD and
 KECCAK256 cases, runs diagnostic and timed evm2 samples, invokes evm-gasfit, and
 checks the resulting archive. The manual `Check - Osaka evm2 Compute` workflow
-accepts immutable `evm2_ref`, `execution_specs_ref`, and `evm_gasfit_ref` commit
-SHAs and retains the smoke artifacts.
+accepts immutable `evm2_ref` and `execution_specs_ref` commit SHAs and retains
+the smoke artifacts. The same workflow runs the analyzer's tests and lint on
+every change under `analyzer/`.

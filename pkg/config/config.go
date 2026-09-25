@@ -2327,7 +2327,6 @@ func bindEnvKeys(v *viper.Viper) {
 		"compute.source_paths.benchmarkoor",
 		"compute.source_paths.evm2",
 		"compute.source_paths.execution_specs",
-		"compute.source_paths.evm_gasfit",
 	}
 
 	for _, key := range keys {

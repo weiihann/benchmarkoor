@@ -1281,8 +1281,7 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
             f"Controller is not an executable file: {controller}")
     engine_root = args.newl1_root if args.engine == "newl1" else args.evm2_root
     for name, path in (("benchmarkoor", args.benchmarkoor_root), (args.engine, engine_root),
-                       ("execution_specs", args.execution_specs_root),
-                       ("evm_gasfit", args.evm_gasfit_root)):
+                       ("execution_specs", args.execution_specs_root)):
         require(path.is_dir(), f"Missing source path for provenance: {name}: {path}")
 
     workload_path = (corpus / "workload.json").resolve(strict=True)
@@ -1298,8 +1297,7 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
                             "swap_disabled": True},
         "source_paths": {"benchmarkoor": str(args.benchmarkoor_root),
                          args.engine: str(engine_root),
-                         "execution_specs": str(args.execution_specs_root),
-                         "evm_gasfit": str(args.evm_gasfit_root)},
+                         "execution_specs": str(args.execution_specs_root)},
     }}
     validate_controller_config(config, workload_path, analysis_config, SESSIONS, QUAL_REPS)
     save(directory / "compute.yaml", config)
@@ -1678,20 +1676,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   python3 scripts/compute/pricing_campaign.py grids $COMMON --generation-jobs 4
   python3 scripts/compute/pricing_campaign.py calibration $COMMON
   python3 scripts/compute/pricing_campaign.py assemble $COMMON
-  python3 -m evm_gasfit.recommendations create-config --client evm2 \
+  uv run --project analyzer python -m evm_gasfit.recommendations create-config --client evm2 \
       --workload $HOME_DIR/corpus/workload.json --out $HOME_DIR/analysis-gasfit.yaml
   python3 scripts/compute/pricing_campaign.py config --run-home $HOME_DIR \
       --generator-image $GEN --worker-image $WORK --analyzer-image $ANA \
       --controller $ROOT/benchmarkoor/bin/benchmarkoor \
       --benchmarkoor-root $ROOT/benchmarkoor --evm2-root $ROOT/evm2 \
-      --execution-specs-root $ROOT/execution-specs --evm-gasfit-root $ROOT/evm-gasfit \
+      --execution-specs-root $ROOT/execution-specs \
       --cpu 14 --memory 24g
   # glue-enabled 4-session smoke first (adjustment + rejection semantics;
   # sparse/inconclusive smoke prices are expected), then the frozen capture
   # (timed CPU 14, nothing else running):
   $ROOT/benchmarkoor/bin/benchmarkoor run --config $HOME_DIR/config/smoke-compute.yaml
   $ROOT/benchmarkoor/bin/benchmarkoor run --config $HOME_DIR/config/compute.yaml
-  python3 -m evm_gasfit.recommendations build \
+  uv run --project analyzer python -m evm_gasfit.recommendations build \
       --workload $HOME_DIR/corpus/workload.json \
       --analysis $HOME_DIR/runs/<RUN-UUID>/analysis/<ATTEMPT> --out $HOME_DIR/recommendations
   python3 scripts/compute/pricing_campaign.py audit --run-home $HOME_DIR \
@@ -1745,8 +1743,6 @@ lane stays fixed-count. Use `--engine newl1` with the NewL1 block worker image,
                         default=Path(__file__).resolve().parents[2] / "../bnbchain-newL1")
     parser.add_argument("--execution-specs-root", type=Path,
                         default=Path(__file__).resolve().parents[2] / "../execution-specs")
-    parser.add_argument("--evm-gasfit-root", type=Path,
-                        default=Path(__file__).resolve().parents[2] / "../evm-gasfit")
     parser.add_argument("--run", help="Run directory to audit (audit stage)")
     parser.add_argument("--recommendations", help="Recommendations output dir (audit stage)")
     parser.add_argument("--continue", dest="continue_stage", action="store_true",
@@ -1767,7 +1763,6 @@ lane stays fixed-count. Use `--engine newl1` with the NewL1 block worker image,
             "--select restricts gas-budget campaigns only; fixed-count grids plan "
             "per-variant counts over the pinned full corpus")
     args.execution_specs_root = args.execution_specs_root.resolve()
-    args.evm_gasfit_root = args.evm_gasfit_root.resolve()
     for image in (args.generator_image, args.worker_image):
         require(IMAGE_ID.fullmatch(image) is not None,
                 f"Image must be a local immutable sha256 ID: {image}")

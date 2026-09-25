@@ -190,7 +190,6 @@ var validComputeSourcePaths = map[string]bool{
 	"evm2":            true,
 	"newl1":           true,
 	"execution_specs": true,
-	"evm_gasfit":      true,
 }
 
 // validComputeEngines lists the execution engines a compute campaign can

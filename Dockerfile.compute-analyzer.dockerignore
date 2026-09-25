@@ -1,0 +1,6 @@
+*
+!analyzer/pyproject.toml
+!analyzer/uv.lock
+!analyzer/README.md
+!analyzer/src/
+**/__pycache__

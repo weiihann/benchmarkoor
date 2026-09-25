@@ -46,4 +46,3 @@ compute:
     benchmarkoor: .
     evm2: ../evm2
     execution_specs: ../execution-specs
-    evm_gasfit: ../evm-gasfit

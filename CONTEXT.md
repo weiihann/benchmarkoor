@@ -11,8 +11,8 @@ machines before deciding how to proceed with compute gas-schedule changes.
 
 Benchmarkoor owns orchestration and artifacts. execution-specs owns workload
 construction and independent expected outcomes. evm2 owns execution and
-operation counting. evm-gasfit remains a pinned dependency; benchmarkoor does
-not copy its modeling logic.
+operation counting. Benchmarkoor also owns analysis: evm-gasfit lives in
+`analyzer/` and builds into the analyzer image.
 
 ## Current handoff
 

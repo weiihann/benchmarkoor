@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "request.schema.json",
-  "title": "evm2 compute worker request (protocol v2)",
-  "description": "Request passed to evm2-bench. A fresh worker process runs one session and flushes one terminal JSONL record per sample. Diagnostic samples run with an inspector; pilot, warmup, and qualification samples run without one.",
+  "title": "NewL1 compute worker request (protocol v2)",
+  "description": "Request passed to newl1-bench. A fresh worker process runs one session and flushes one terminal JSONL record per sample. Diagnostic samples run with an inspector; pilot, warmup, and qualification samples run without one.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "workload_path", "session_id", "mode", "samples"],

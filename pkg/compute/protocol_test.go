@@ -96,7 +96,7 @@ func baseResult() *Result {
 		Phase:               PhaseDiagnostic,
 		Status:              ResultStatusExecuted,
 		ExecutionDurationNS: u64(482135000),
-		ExecutionBoundary:   BoundaryEvm2TransactionExecution,
+		ExecutionBoundary:   BoundaryNewL1BlockExecution,
 		BaselineHash:        strPtr(baselineHex),
 		PreparedHash:        strPtr(preparedHex),
 		CommitmentHash:      strPtr(commitHex),
@@ -401,7 +401,7 @@ func TestResultValidateAcceptsValidResults(t *testing.T) {
 			CaseID:            modCaseID,
 			Phase:             PhasePilot,
 			Status:            ResultStatusUnsupported,
-			ExecutionBoundary: BoundaryEvm2TransactionExecution,
+			ExecutionBoundary: BoundaryNewL1BlockExecution,
 			Error:             &ResultError{Stage: "workload", Message: "case marked unsupported by generator: data-dependent MOD has no fixed-count variant"},
 		}
 		assert.NoError(t, res.Validate())
@@ -476,7 +476,7 @@ func TestResultValidateRejectsContradictoryUnsupportedResults(t *testing.T) {
 			CaseID:            modCaseID,
 			Phase:             PhasePilot,
 			Status:            ResultStatusUnsupported,
-			ExecutionBoundary: BoundaryEvm2TransactionExecution,
+			ExecutionBoundary: BoundaryNewL1BlockExecution,
 			Error:             &ResultError{Stage: "workload", Message: "generator marked case unsupported"},
 		}
 	}
@@ -627,7 +627,7 @@ func TestDecodeRejectsInvalidNumbersAndShapes(t *testing.T) {
 		err := json.Unmarshal([]byte(`{
 			"schema_version": 2, "session_id": "s", "sample_id": "a", "case_id": "b",
 			"repetition": 0, "phase": "diagnostic", "status": "executed",
-			"execution_duration_ns": 1.5, "execution_boundary": "evm2_transaction_execution",
+			"execution_duration_ns": 1.5, "execution_boundary": "newl1_block_execution",
 			"correctness_passed": true
 		}`), &res)
 		assert.Error(t, err)
@@ -638,7 +638,7 @@ func TestDecodeRejectsInvalidNumbersAndShapes(t *testing.T) {
 		err := json.Unmarshal([]byte(`{
 			"schema_version": 2, "session_id": "s", "sample_id": "a", "case_id": "b",
 			"repetition": 0, "phase": "diagnostic", "status": "executed",
-			"execution_duration_ns": NaN, "execution_boundary": "evm2_transaction_execution",
+			"execution_duration_ns": NaN, "execution_boundary": "newl1_block_execution",
 			"correctness_passed": true
 		}`), &res)
 		assert.Error(t, err)

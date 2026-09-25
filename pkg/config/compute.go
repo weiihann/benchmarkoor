@@ -18,8 +18,6 @@ const (
 	// maxComputeTxGasCap is Osaka's EIP-7825 transaction gas limit.
 	maxComputeTxGasCap uint64 = 1 << 24
 
-	// ComputeEngineEvm2 measures the evm2 transaction executor.
-	ComputeEngineEvm2 = "evm2"
 	// ComputeEngineNewL1 measures the NewL1 production block executor.
 	ComputeEngineNewL1 = "newl1"
 )
@@ -123,8 +121,8 @@ func (c *ComputeConfig) Validate() error {
 
 	if !validComputeEngines[c.Engine] {
 		return fmt.Errorf(
-			"compute.engine: invalid value %q (must be %q or %q)",
-			c.Engine, ComputeEngineEvm2, ComputeEngineNewL1,
+			"compute.engine: invalid value %q (must be %q)",
+			c.Engine, ComputeEngineNewL1,
 		)
 	}
 
@@ -187,7 +185,6 @@ func (c *ComputeConfig) Validate() error {
 
 var validComputeSourcePaths = map[string]bool{
 	"benchmarkoor":    true,
-	"evm2":            true,
 	"newl1":           true,
 	"execution_specs": true,
 }
@@ -196,7 +193,6 @@ var validComputeSourcePaths = map[string]bool{
 // measure. pkg/compute binds each engine to its required execution boundary,
 // so the two packages must agree on these names.
 var validComputeEngines = map[string]bool{
-	ComputeEngineEvm2:  true,
 	ComputeEngineNewL1: true,
 }
 

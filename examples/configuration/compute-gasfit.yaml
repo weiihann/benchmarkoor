@@ -4,7 +4,7 @@
 # full-workload slopes with the Osaka table but does not claim an official
 # calibration, recommend prices, or create pricing scenarios.
 version: 1
-clients: [evm2]
+clients: [newl1]
 gas_costs:
   fork: osaka
 output:

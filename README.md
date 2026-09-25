@@ -12,7 +12,7 @@ Benchmarkoor is a benchmarking tool for Ethereum execution clients. It runs stan
 
 - [Configuration Reference](docs/configuration.md) - All configuration options explained
 - [Docker Guide](docs/docker.md) - Docker setup, requirements, and troubleshooting
-- [Osaka evm2 Compute Campaigns](docs/compute.md) - Reproducible evm2 measurement, analysis, and comparison workflow
+- [Osaka NewL1 Compute Campaigns](docs/compute.md) - Reproducible NewL1 measurement, analysis, and comparison workflow
 
 ## Docker Quickstart
 

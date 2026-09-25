@@ -1,7 +1,7 @@
 // Package compute defines the canonical versioned file/JSON contract used by
 // the Osaka strictly-compute benchmark pipeline: workload packages exported
 // by the execution-specs generator, sample requests handed to the execution
-// worker of the configured engine (evm2-bench or newl1-bench, both invoked as
+// worker of the configured engine (newl1-bench, invoked as
 // --request <request.json> --output <samples.jsonl>), and the per-sample
 // JSONL results those workers emit.
 //
@@ -72,19 +72,12 @@ const (
 // Execution engines this pipeline can measure. A campaign selects exactly
 // one; every result it reconciles must report that engine's boundary.
 const (
-	// EngineEvm2 is the evm2 Rust EVM reimplementation.
-	EngineEvm2 = "evm2"
 	// EngineNewL1 is the BNB Chain NewL1 production block executor.
 	EngineNewL1 = "newl1"
 )
 
 // Execution boundaries, one per engine.
 const (
-	// BoundaryEvm2TransactionExecution names the evm2 timed boundary:
-	// transaction validation, execution, settlement, and state commit.
-	// Workload parsing, baseline restoration, EVM construction, and
-	// correctness checks remain outside it.
-	BoundaryEvm2TransactionExecution = "evm2_transaction_execution"
 	// BoundaryNewL1BlockExecution names the NewL1 timed boundary: one
 	// production block executing all of a case's transactions through the
 	// NewL1 block executor. Workload parsing, prestate preparation, baseline
@@ -95,7 +88,6 @@ const (
 // engineBoundaries is the single source of truth binding each engine to the
 // boundary its worker must report.
 var engineBoundaries = map[string]string{
-	EngineEvm2:  BoundaryEvm2TransactionExecution,
 	EngineNewL1: BoundaryNewL1BlockExecution,
 }
 
@@ -120,8 +112,8 @@ func ExecutionBoundaryForEngine(engine string) (string, error) {
 }
 
 // EngineForExecutionBoundary reverses the engine mapping. Boundaries are
-// unique per engine, so archived manifests recorded before the explicit
-// engine field remain attributable.
+// unique per engine, so a result's boundary identifies the engine that
+// produced it.
 func EngineForExecutionBoundary(boundary string) (string, error) {
 	for engine, engineBoundary := range engineBoundaries {
 		if engineBoundary == boundary {
@@ -209,9 +201,9 @@ type Account struct {
 
 // Transaction is recovered transaction intent. The worker constructs an
 // engine transaction using the declared sender and the account nonce from
-// prestate. SecretKey optionally carries the EEST test key of the sender so
-// block-building engines can sign the transaction themselves; evm2 accepts
-// and ignores it, NewL1 requires it and verifies it derives the sender.
+// prestate. SecretKey carries the EEST test key of the sender so the
+// block-building engine can sign the transaction itself; NewL1 requires it
+// and verifies it derives the sender.
 type Transaction struct {
 	Sender    string `json:"sender"`
 	SecretKey string `json:"secret_key,omitempty"`

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "result.schema.json",
-  "title": "evm2 compute worker sample result (protocol v2)",
-  "description": "One terminal JSONL result. The timed boundary covers evm2 transaction validation, execution, settlement, and state commit. Baseline restoration, EVM construction, workload parsing, and correctness checks are excluded.",
+  "title": "NewL1 compute worker sample result (protocol v2)",
+  "description": "One terminal JSONL result. The timed boundary covers one production block executing all of a case's transactions through the NewL1 block executor. Workload parsing, prestate preparation, baseline restoration, and correctness checks are excluded.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -20,7 +20,7 @@
     "phase": { "enum": ["diagnostic", "pilot", "warmup", "qualification"] },
     "status": { "enum": ["executed", "failed", "unsupported"] },
     "execution_duration_ns": { "type": ["integer", "null"], "minimum": 0 },
-    "execution_boundary": { "enum": ["evm2_transaction_execution", "newl1_block_execution"] },
+    "execution_boundary": { "const": "newl1_block_execution" },
     "baseline_hash": { "$ref": "#/$defs/artifactHash" },
     "prepared_hash": { "$ref": "#/$defs/artifactHash" },
     "commitment_hash": { "$ref": "#/$defs/artifactHash" },

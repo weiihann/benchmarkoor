@@ -27,7 +27,7 @@ Stages:
                and calibration-excluded-from-pricing evidence.
 
 The target source allowlist, families, transaction gas cap, and protocol v2
-contract are unchanged from the handoff. Calibration cases never widen the
+contract are fixed across campaigns. Calibration cases never widen the
 target inventory, never gain pricing models, and carry the string parameter
 campaign_role so the exported runtimes CSV exposes param_campaign_role for
 both lanes.
@@ -94,7 +94,7 @@ IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 CPU_LIST = re.compile(r"[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*\Z")
 MEMORY_SPEC = re.compile(r"[1-9][0-9]*(?:[bkmgBKMG])?\Z")
 HASH64 = re.compile(r"(?:0x)?[0-9a-fA-F]{64}\Z")
-BOUNDARIES = {"evm2": "evm2_transaction_execution", "newl1": "newl1_block_execution"}
+BOUNDARIES = {"newl1": "newl1_block_execution"}
 ROLES = ("target", "calibration")
 TIMED_CPU = 14
 RESERVED_CPUS = (14, 30)
@@ -1279,8 +1279,7 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
     controller = Path(args.controller).resolve(strict=True)
     require(controller.is_file() and os.access(controller, os.X_OK),
             f"Controller is not an executable file: {controller}")
-    engine_root = args.newl1_root if args.engine == "newl1" else args.evm2_root
-    for name, path in (("benchmarkoor", args.benchmarkoor_root), (args.engine, engine_root),
+    for name, path in (("benchmarkoor", args.benchmarkoor_root), ("newl1", args.newl1_root),
                        ("execution_specs", args.execution_specs_root)):
         require(path.is_dir(), f"Missing source path for provenance: {name}: {path}")
 
@@ -1296,7 +1295,7 @@ def run_config(args: argparse.Namespace, directory: Path) -> None:
         "resource_limits": {"cpuset": [args.cpu], "memory": args.memory,
                             "swap_disabled": True},
         "source_paths": {"benchmarkoor": str(args.benchmarkoor_root),
-                         args.engine: str(engine_root),
+                         "newl1": str(args.newl1_root),
                          "execution_specs": str(args.execution_specs_root)},
     }}
     validate_controller_config(config, workload_path, analysis_config, SESSIONS, QUAL_REPS)
@@ -1665,23 +1664,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         epilog="""Stage recipes for the frozen experiment home:
 
   ROOT=/server/weihan
-  HOME_DIR=$ROOT/benchmarkoor/results/osaka-pricing-600m-20260922T163024Z
+  HOME_DIR=$ROOT/benchmarkoor/results/<experiment-home>
   GEN=$(docker image inspect --format '{{.Id}}' benchmarkoor-compute-generator:pricing)
-  WORK=$(docker image inspect --format '{{.Id}}' benchmarkoor-compute-worker:pricing)
+  WORK=$(docker image inspect --format '{{.Id}}' benchmarkoor-compute-worker-newl1:pricing)
   ANA=$(docker image inspect --format '{{.Id}}' benchmarkoor-compute-analyzer:pricing)
+  MODE="--engine newl1 --workload-mode gas_budget --gas-budgets 120,240,360"
   COMMON="--run-home $HOME_DIR --generator-image $GEN --worker-image $WORK \
-      --engine evm2 --generation-cpuset 0-13,15-29 --fixture-format engine"
+      $MODE --generation-cpuset 0-13,15-29 --fixture-format engine"
 
   python3 scripts/compute/pricing_campaign.py inventory $COMMON
   python3 scripts/compute/pricing_campaign.py grids $COMMON --generation-jobs 4
   python3 scripts/compute/pricing_campaign.py calibration $COMMON
   python3 scripts/compute/pricing_campaign.py assemble $COMMON
-  uv run --project analyzer python -m evm_gasfit.recommendations create-config --client evm2 \
+  uv run --project analyzer python -m evm_gasfit.recommendations create-config --client newl1 \
       --workload $HOME_DIR/corpus/workload.json --out $HOME_DIR/analysis-gasfit.yaml
-  python3 scripts/compute/pricing_campaign.py config --run-home $HOME_DIR \
+  python3 scripts/compute/pricing_campaign.py config --run-home $HOME_DIR $MODE \
       --generator-image $GEN --worker-image $WORK --analyzer-image $ANA \
       --controller $ROOT/benchmarkoor/bin/benchmarkoor \
-      --benchmarkoor-root $ROOT/benchmarkoor --evm2-root $ROOT/evm2 \
+      --benchmarkoor-root $ROOT/benchmarkoor --newl1-root $ROOT/bnbchain-newL1 \
       --execution-specs-root $ROOT/execution-specs \
       --cpu 14 --memory 24g
   # glue-enabled 4-session smoke first (adjustment + rejection semantics;
@@ -1692,7 +1692,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   uv run --project analyzer python -m evm_gasfit.recommendations build \
       --workload $HOME_DIR/corpus/workload.json \
       --analysis $HOME_DIR/runs/<RUN-UUID>/analysis/<ATTEMPT> --out $HOME_DIR/recommendations
-  python3 scripts/compute/pricing_campaign.py audit --run-home $HOME_DIR \
+  python3 scripts/compute/pricing_campaign.py audit --run-home $HOME_DIR $MODE \
       --run $HOME_DIR/runs/<RUN-UUID> --recommendations $HOME_DIR/recommendations \
       --generator-image $GEN --worker-image $WORK --fixture-format engine
 
@@ -1702,11 +1702,10 @@ rerun the same stage command with --continue to fill only the missing shards.
 Timed capture uses CPU 14 only. Failed measurements are never retried; audit
 every run and keep earlier attempts.
 
-EIP-7904 block layout: add `--workload-mode gas_budget` (optionally
-`--gas-budgets 100,120,...`, in Mgas) to every stage. Each target case is then
-one block whose budget EEST splits into 2^24-gas transactions; the calibration
-lane stays fixed-count. Use `--engine newl1` with the NewL1 block worker image,
-`--newl1-root` for its checkout, and `create-config --client newl1`.""")
+Workload modes: gas_budget (EIP-7904 block layout) makes each target case one
+block whose budget EEST splits into 2^24-gas transactions, at the Mgas budgets
+listed by --gas-budgets. fixed_count (the default) makes each target case one
+fixed-work transaction. The calibration lane stays fixed-count in both modes.""")
     parser.add_argument("stage", choices=("inventory", "grids", "calibration", "assemble",
                                           "config", "audit"))
     parser.add_argument("--run-home", type=Path, required=True)
@@ -1737,8 +1736,6 @@ lane stays fixed-count. Use `--engine newl1` with the NewL1 block worker image,
     parser.add_argument("--timeout", default="8h", help="Frozen campaign timeout")
     parser.add_argument("--benchmarkoor-root", type=Path,
                         default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--evm2-root", type=Path,
-                        default=Path(__file__).resolve().parents[2] / "../evm2")
     parser.add_argument("--newl1-root", type=Path,
                         default=Path(__file__).resolve().parents[2] / "../bnbchain-newL1")
     parser.add_argument("--execution-specs-root", type=Path,
@@ -1752,7 +1749,6 @@ lane stays fixed-count. Use `--engine newl1` with the NewL1 block worker image,
 
     args.run_home = args.run_home.resolve(strict=True)
     args.benchmarkoor_root = args.benchmarkoor_root.resolve()
-    args.evm2_root = args.evm2_root.resolve()
     args.newl1_root = args.newl1_root.resolve()
     require(re.fullmatch(r"[1-9][0-9]*(?:,[1-9][0-9]*)+", args.gas_budgets) is not None,
             f"--gas-budgets must list at least two positive Mgas values: {args.gas_budgets}")

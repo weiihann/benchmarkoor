@@ -5,7 +5,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 ## Table of Contents
 
 - [Overview](#overview)
-- [Osaka evm2 Compute Campaigns](#osaka-evm2-compute-campaigns)
+- [Osaka NewL1 Compute Campaigns](#osaka-newl1-compute-campaigns)
 - [Environment Variables](#environment-variables)
   - [Config-local variables (`global.env`)](#config-local-variables-globalenv)
   - [Environment Variable Overrides](#environment-variable-overrides)
@@ -37,18 +37,18 @@ Benchmarkoor uses YAML configuration files to define benchmark settings, client 
 benchmarkoor run --config config.yaml
 ```
 
-## Osaka evm2 Compute Campaigns
+## Osaka NewL1 Compute Campaigns
 
-The top-level `compute` mapping selects the Osaka evm2 compute pipeline instead
-of the ordinary Ethereum-client runner. It requires exactly one of `workload`
-or `generator`, a worker image, an analyzer image and YAML configuration, a
+The top-level `compute` mapping selects the Osaka NewL1 compute pipeline instead
+of the ordinary Ethereum-client runner. It requires `engine: newl1`, exactly one
+of `workload` or `generator`, a worker image, an analyzer image and YAML configuration, a
 container runtime, a deterministic seed, and phase/session counts.
 
 Use [`compute.yaml`](../examples/configuration/compute.yaml) for the local ADD
 and KECCAK256 control campaign and
 [`compute-gasfit.yaml`](../examples/configuration/compute-gasfit.yaml) for its
 anchorless analysis policy. See
-[Osaka evm2 Compute Campaigns](compute.md) for the complete procedure.
+[Osaka NewL1 Compute Campaigns](compute.md) for the complete procedure.
 
 ## Environment Variables
 

@@ -7,7 +7,7 @@
   "phase": "qualification",
   "status": "unsupported",
   "execution_duration_ns": null,
-  "execution_boundary": "evm2_transaction_execution",
+  "execution_boundary": "newl1_block_execution",
   "baseline_hash": null,
   "prepared_hash": null,
   "commitment_hash": null,

@@ -16,7 +16,7 @@ func TestUpdateComputeAnalysisPreservesExistingSummaryFields(t *testing.T) {
 	original := []byte(`{
   "timestamp": 1,
   "status": "completed",
-  "instance": {"id":"compute","client":"evm2","image":"worker@sha256:abc"},
+  "instance": {"id":"compute","client":"newl1","image":"worker@sha256:abc"},
   "test_counts": {"total":4,"passed":3,"failed":1},
   "metadata": {"labels":{"campaign":"osaka"}},
   "compute": {
@@ -78,7 +78,7 @@ func TestGasfitOutcomeRequiresQualifiedAdjustedEstimate(t *testing.T) {
 func TestAnalysisOverrideRejectsDisabledQualificationGate(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "permissive-analysis.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte(`
-clients: [evm2]
+clients: [newl1]
 qualification:
   confidence_level: 0.95
   max_relative_uncertainty: null
@@ -87,7 +87,7 @@ qualification:
 campaign: {}
 `), 0o600))
 
-	err := config.ValidateComputeQualificationPolicy(configPath, EngineEvm2)
+	err := config.ValidateComputeQualificationPolicy(configPath, EngineNewL1)
 
 	assert.ErrorContains(t, err, "positive qualification.max_relative_uncertainty")
 }

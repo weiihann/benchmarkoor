@@ -1,4 +1,4 @@
-# Osaka evm2-worker compute pipeline control campaign.
+# Osaka NewL1-worker compute pipeline control campaign.
 #
 # Build the pinned local images first, then run:
 #   benchmarkoor build --config examples/configuration/compute.yaml
@@ -12,8 +12,8 @@ compute:
   id: osaka-add-keccak-local-control
   results_dir: ./results
   container_runtime: docker
-  engine: evm2
-  worker_image: benchmarkoor-compute-worker:local
+  engine: newl1
+  worker_image: benchmarkoor-compute-worker-newl1:local
   generator:
     image: benchmarkoor-compute-generator:local
     tests:
@@ -44,5 +44,5 @@ compute:
     swap_disabled: true
   source_paths:
     benchmarkoor: .
-    evm2: ../evm2
+    newl1: ../bnbchain-newL1
     execution_specs: ../execution-specs

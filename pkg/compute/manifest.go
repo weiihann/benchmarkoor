@@ -176,7 +176,7 @@ func hostFacts(resourceLimits *docker.ResourceLimits) (map[string]any, map[strin
 }
 
 func collectSourceFacts(ctx context.Context, paths map[string]string) map[string]sourceFacts {
-	names := []string{"benchmarkoor", "evm2", "execution_specs"}
+	names := []string{"benchmarkoor", "newl1", "execution_specs"}
 	facts := make(map[string]sourceFacts, len(names))
 	for _, name := range names {
 		facts[name] = collectOneSourceFacts(ctx, paths[name])

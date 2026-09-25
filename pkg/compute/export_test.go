@@ -31,8 +31,8 @@ func TestExportGasfitInputsSnapshotsRawArtifactsWithoutMutation(t *testing.T) {
 	diagnosticBytes, err := json.Marshal(diagnostic)
 	require.NoError(t, err)
 
-	manifestBytes := []byte(`{"schema_version":2,"boundary":"evm2_transaction_execution"}`)
-	configBytes := []byte("clients:\n  - evm2\n")
+	manifestBytes := []byte(`{"schema_version":2,"boundary":"newl1_block_execution"}`)
+	configBytes := []byte("clients:\n  - newl1\n")
 	for path, contents := range map[string][]byte{
 		filepath.Join(runDir, "workload.json"):        workloadBytes,
 		filepath.Join(runDir, "samples.jsonl"):        append(append(diagnosticBytes, '\n'), append(performanceBytes, '\n')...),

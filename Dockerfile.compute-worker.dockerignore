@@ -1,6 +1,0 @@
-.git/
-.github/
-target/
-**/target/
-**/.env*
-**/__pycache__/

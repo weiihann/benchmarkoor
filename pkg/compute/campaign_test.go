@@ -18,15 +18,15 @@ func TestParseSessionResultsRejectsPartialOutputAndReconcilesMissingSample(t *te
 		CaseID:   addCaseID,
 		Phase:    PhaseDiagnostic,
 	})
-	failed := controllerFailure(BoundaryEvm2TransactionExecution, request, request.Samples[0], "worker", "fixture failure")
+	failed := controllerFailure(BoundaryNewL1BlockExecution, request, request.Samples[0], "worker", "fixture failure")
 	data, err := json.Marshal(failed)
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "samples.jsonl")
 	require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o644))
 
-	results, err := parseSessionResults(path, request, BoundaryEvm2TransactionExecution)
+	results, err := parseSessionResults(path, request, BoundaryNewL1BlockExecution)
 	require.Error(t, err)
-	reconciled := reconcileCampaignResults([]Request{request}, results, BoundaryEvm2TransactionExecution)
+	reconciled := reconcileCampaignResults([]Request{request}, results, BoundaryNewL1BlockExecution)
 	require.Len(t, reconciled, 2)
 	assert.Equal(t, ResultStatusFailed, reconciled["s-0001"].Status)
 	assert.Equal(t, ResultStatusFailed, reconciled["s-0002"].Status)
@@ -39,32 +39,32 @@ func TestParseSessionResultsRejectsMalformedOutput(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "samples.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte("{not-json}\n"), 0o644))
 
-	results, err := parseSessionResults(path, *baseRequest(), BoundaryEvm2TransactionExecution)
+	results, err := parseSessionResults(path, *baseRequest(), BoundaryNewL1BlockExecution)
 	require.Error(t, err)
 	assert.Empty(t, results)
 }
 
 func TestParseSessionResultsRejectsDuplicateOutput(t *testing.T) {
 	request := *baseRequest()
-	failed := controllerFailure(BoundaryEvm2TransactionExecution, request, request.Samples[0], "worker", "fixture failure")
+	failed := controllerFailure(BoundaryNewL1BlockExecution, request, request.Samples[0], "worker", "fixture failure")
 	data, err := json.Marshal(failed)
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "samples.jsonl")
 	require.NoError(t, os.WriteFile(path, append(append(data, '\n'), append(data, '\n')...), 0o644))
 
-	_, err = parseSessionResults(path, request, BoundaryEvm2TransactionExecution)
+	_, err = parseSessionResults(path, request, BoundaryNewL1BlockExecution)
 	require.Error(t, err)
 }
 
 func TestParseSessionResultsRetainsTerminalWorkerFailure(t *testing.T) {
 	request := *baseRequest()
-	failed := controllerFailure(BoundaryEvm2TransactionExecution, request, request.Samples[0], "worker", "fixture failure")
+	failed := controllerFailure(BoundaryNewL1BlockExecution, request, request.Samples[0], "worker", "fixture failure")
 	data, err := json.Marshal(failed)
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "samples.jsonl")
 	require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o644))
 
-	results, err := parseSessionResults(path, request, BoundaryEvm2TransactionExecution)
+	results, err := parseSessionResults(path, request, BoundaryNewL1BlockExecution)
 	require.NoError(t, err)
 	require.Contains(t, results, request.Samples[0].SampleID)
 	assert.Equal(t, ResultStatusFailed, results[request.Samples[0].SampleID].Status)

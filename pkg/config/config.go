@@ -2325,7 +2325,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"compute.resource_limits.cpu_turboboost",
 		"compute.resource_limits.cpu_freq_governor",
 		"compute.source_paths.benchmarkoor",
-		"compute.source_paths.evm2",
+		"compute.source_paths.newl1",
 		"compute.source_paths.execution_specs",
 	}
 

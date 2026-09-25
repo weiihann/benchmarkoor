@@ -19,8 +19,8 @@ func TestComputeConfigValidate(t *testing.T) {
 			ID:               "osaka-add-keccak-local",
 			ResultsDir:       t.TempDir(),
 			ContainerRuntime: "docker",
-			Engine:           ComputeEngineEvm2,
-			WorkerImage:      "benchmarkoor-compute-worker:local",
+			Engine:           ComputeEngineNewL1,
+			WorkerImage:      "benchmarkoor-compute-worker-newl1:local",
 			Generator: &ComputeGeneratorConfig{
 				Image:            "benchmarkoor-compute-generator:local",
 				Marker:           "repricing",
@@ -48,7 +48,7 @@ func TestComputeConfigValidate(t *testing.T) {
 	t.Run("campaign analysis requires an explicit frozen qualification policy", func(t *testing.T) {
 		cfg := valid()
 		path := filepath.Join(t.TempDir(), "analysis.yaml")
-		require.NoError(t, os.WriteFile(path, []byte("clients: [evm2]\ncampaign: {}\n"), 0o600))
+		require.NoError(t, os.WriteFile(path, []byte("clients: [newl1]\ncampaign: {}\n"), 0o600))
 		cfg.Analyzer.Config = path
 
 		assert.Error(t, cfg.Validate())
@@ -58,7 +58,7 @@ func TestComputeConfigValidate(t *testing.T) {
 		cfg := valid()
 		path := filepath.Join(t.TempDir(), "analysis.yaml")
 		require.NoError(t, os.WriteFile(path, []byte(`
-clients: [evm2]
+clients: [newl1]
 qualification:
   confidence_level: 0.95
   max_relative_uncertainty: 0.2
@@ -125,7 +125,7 @@ campaign:
 				cfg := valid()
 				path := filepath.Join(t.TempDir(), "analysis.yaml")
 				require.NoError(t, os.WriteFile(path, []byte(`
-clients: [evm2]
+clients: [newl1]
 qualification:
   confidence_level: 0.95
   max_relative_uncertainty: 0.2
@@ -201,7 +201,7 @@ func writeComputeAnalysisConfig(t *testing.T) string {
 
 	path := filepath.Join(t.TempDir(), "analysis.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`
-clients: [evm2]
+clients: [newl1]
 qualification:
   confidence_level: 0.95
   max_relative_uncertainty: 0.2

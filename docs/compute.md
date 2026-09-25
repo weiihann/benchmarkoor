@@ -1,16 +1,12 @@
 # Osaka compute campaigns
 
 A compute campaign exports fixed-work or gas-budget Osaka workloads through
-execution-specs, executes them with evm2 or NewL1, archives every sample, and
-fits the results with the in-tree evm-gasfit analyzer (`analyzer/`). The
-pipeline does not reimplement workload generation or EVM execution.
+execution-specs, executes them with NewL1, archives every sample, and fits the
+results with the in-tree evm-gasfit analyzer (`analyzer/`). The pipeline does
+not reimplement workload generation or EVM execution.
 
 The campaign is compute-only. It does not change gas constants, recommend a
 block gas limit, or price memory, storage, state growth, or network capacity.
-
-For the completed 600 Mgas/s evaluation, proposed prices, qualification limits,
-and evidence, see the [gas-pricing report](compute-gas-pricing-600m.md).
-The [historical handoff](compute-handoff.md) retains the earlier setup plan.
 
 ## Eligible workloads
 
@@ -43,12 +39,12 @@ The allowance is a generation bound, not the observed target count.
 
 ## Build inputs
 
-Use pinned sibling checkouts for the worker and generator; the analyzer builds
+Use pinned sibling checkouts for the worker and generator. The analyzer builds
 from this repository:
 
 | Image | Dockerfile | Build input |
 | --- | --- | --- |
-| evm2 worker | `Dockerfile.compute-worker` | Primary context `../evm2` |
+| NewL1 worker | `Dockerfile.compute-worker-newl1` | Primary context: a bnbchain-newL1 checkout containing `bin/newl1-bench` |
 | workload generator | `Dockerfile.compute-generator` | Named context `execution-specs=../execution-specs` |
 | analyzer | `Dockerfile.compute-analyzer` | This repository's `analyzer/` |
 
@@ -56,8 +52,8 @@ Build the images from the selected worktrees:
 
 ```bash
 docker build \
-  -f Dockerfile.compute-worker \
-  -t benchmarkoor-compute-worker:local ../evm2
+  -f Dockerfile.compute-worker-newl1 \
+  -t benchmarkoor-compute-worker-newl1:local ../bnbchain-newL1
 
 docker build \
   --build-context execution-specs=../execution-specs \
@@ -71,7 +67,7 @@ docker build \
 
 `source_paths` in the campaign configuration records revisions, dirty-state
 evidence, and dependency lock hashes for benchmarkoor (which includes the
-analyzer), evm2, and execution-specs. Retain patches and untracked files
+analyzer), NewL1, and execution-specs. Retain patches and untracked files
 separately when a source worktree is dirty.
 
 ## Run a campaign
@@ -94,25 +90,25 @@ one terminal JSONL record per requested sample.
 ## Engines and measurement boundaries
 
 `compute.engine` selects the worker and fixes the boundary every result must
-report; a row with another engine's boundary is an accounting error.
+report. `newl1` is the only engine. A row with any other boundary is an
+accounting error.
 
 | Engine | Worker | Boundary | Timed unit |
 | --- | --- | --- | --- |
-| `evm2` | `evm2-bench` (`Dockerfile.compute-worker`) | `evm2_transaction_execution` | Each transaction's validation, execution, settlement, and state commit through evm2 |
 | `newl1` | `newl1-bench` (`Dockerfile.compute-worker-newl1`) | `newl1_block_execution` | One NewL1 production block (`NewL1EvmBlockExecution::execute`): all of the case's transactions, the Parlia system tail, and the LtHash commitment |
 
-Both boundaries exclude workload parsing and prestate preparation, baseline
+The boundary excludes workload parsing and prestate preparation, baseline
 restoration, EVM construction, signer recovery, correctness checks, and artifact
 hashing and serialization. The NewL1 worker signs real EIP-1559 transactions from
 each transaction's `secret_key` (EEST test keys) and runs its bench-only genesis
-at Osaka; production NewL1 fork configuration is untouched.
+at Osaka. Production NewL1 fork configuration is untouched.
 
 Diagnostic samples run with an inspector and report opcode counts plus addressed
 precompile invocations. Pilot, warmup, and qualification samples run without the
 inspector and must report a positive `execution_duration_ns`. NewL1 counts only
 the opcodes of the case's own transactions: system calls are per-block overhead
-inside the timer, not workload. Like evm2 and the fill's reference trace, it
-counts the opcode that exhausts a transaction's gas.
+inside the timer, not workload. Like the fill's reference trace, it counts the
+opcode that exhausts a transaction's gas.
 
 Each qualification session uses a fresh worker process. The worker restores the
 prepared baseline for every sample. Diagnostic and pilot requests use separate
@@ -199,15 +195,5 @@ go test -tags \
   ./pkg/config ./pkg/compute
 ```
 
-Run the real finite cross-repository smoke:
-
-```bash
-scripts/compute/smoke.sh
-```
-
-The script builds the three pinned local images, exports twenty ADD and
-KECCAK256 cases, runs diagnostic and timed evm2 samples, invokes evm-gasfit, and
-checks the resulting archive. The manual `Check - Osaka evm2 Compute` workflow
-accepts immutable `evm2_ref` and `execution_specs_ref` commit SHAs and retains
-the smoke artifacts. The same workflow runs the analyzer's tests and lint on
-every change under `analyzer/`.
+The `Check - Osaka Compute` workflow runs these tests plus the analyzer's tests
+and lint whenever compute sources change.

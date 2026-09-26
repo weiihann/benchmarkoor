@@ -27,7 +27,7 @@ func TestComputeConfigValidate(t *testing.T) {
 				FixedOpcodeCount: []float64{0, 1, 2},
 				TxGasCap:         DefaultComputeTxGasCap,
 			},
-			Analyzer: ComputeAnalyzerConfig{
+			Analyzer: &ComputeAnalyzerConfig{
 				Image:  "benchmarkoor-compute-analyzer:local",
 				Config: analysisConfig,
 			},
@@ -207,6 +207,36 @@ qualification:
 			assert.Error(t, cfg.Validate())
 		})
 	}
+}
+
+func TestComputeConfigLoadsCaptureOnlyCampaign(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	workload := filepath.Join(dir, "workload.json")
+	require.NoError(t, os.WriteFile(workload, []byte("{}"), 0o600))
+	path := filepath.Join(dir, "compute.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`compute:
+  id: block-times
+  engine: newl1
+  workload: `+workload+`
+  results_dir: `+dir+`
+  container_runtime: docker
+  worker_image: benchmarkoor-compute-worker-newl1:local
+  seed: 1
+  sessions: 2
+  pilot_repetitions: 1
+  warmup_repetitions: 1
+  repetitions: 1
+  timeout: 5m
+`), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	// Env-bound analyzer keys must not materialise an empty analyzer, which
+	// would fail validation instead of selecting a capture-only campaign.
+	assert.Nil(t, cfg.Compute.Analyzer)
+	require.NoError(t, cfg.ValidateCompute())
 }
 
 func writeComputeAnalysisConfig(t *testing.T) string {

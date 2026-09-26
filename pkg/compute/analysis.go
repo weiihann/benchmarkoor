@@ -195,8 +195,8 @@ func readArchivedCampaign(path string) (*config.ComputeConfig, error) {
 	if err := json.Unmarshal(contents, &campaign); err != nil {
 		return nil, fmt.Errorf("decoding archived campaign %q: %w", path, err)
 	}
-	if campaign.Analyzer.Image == "" {
-		return nil, fmt.Errorf("archived campaign %q has no analyzer image", path)
+	if campaign.Analyzer == nil || campaign.Analyzer.Image == "" {
+		return nil, fmt.Errorf("archived campaign %q has no analyzer image (capture-only campaign)", path)
 	}
 	if campaign.Engine == "" {
 		return nil, fmt.Errorf("archived campaign %q names no engine", path)

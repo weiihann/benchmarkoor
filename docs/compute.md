@@ -94,6 +94,11 @@ which is the default. `cpuset_count` picks random CPUs that satisfy
 `cpu_freq_governor`, because their sessions do not apply them. Keep the host
 otherwise idle while a campaign times samples.
 
+Omitting `compute.analyzer` makes a capture-only campaign. Every session runs
+and every sample is archived, but no analysis follows. Use it for block-time
+measurements that no pricing fit consumes, such as timing one block size on
+another machine. `benchmarkoor analyze` rejects a capture-only run.
+
 ## Engines and measurement boundaries
 
 `compute.engine` selects the worker and fixes the boundary every result must
@@ -165,10 +170,19 @@ an explicit positive gas-per-second anchor and margin policy.
 
 The coordinated pricing operator is `scripts/compute/pricing_campaign.py`.
 It stages inventory, supporting calibration, target count grids, corpus assembly,
-and capture configuration. The gasfit `recommendations` CLI creates the model
+and capture configuration. `scripts/compute/run_newl1_campaign.sh` drives every
+stage through capture, recommendations, and audit in one resumable command. It
+requires at least five gas budgets, because glue detection needs five block
+sizes per model. The gasfit `recommendations` CLI creates the model
 configuration and builds per-variant and per-group pricing evidence from archived
 reports. It reads the analysis's embedded, hash-verified configuration rather than
 following an old container-local path.
+
+For block times alone, `scripts/compute/extract_block_corpus.py` takes one gas
+budget's target cases from a finished corpus, and
+`scripts/compute/run_newl1_block_times.sh` times them in a capture-only campaign
+with the pricing session layout. `scripts/compute/campaign_block_times.py` writes
+the per-case block-time table for either kind of run.
 
 Isolated-cost and whole-workload-budget recommendations have separate coverage
 and qualification decisions. A raw workload slope is not an isolated opcode

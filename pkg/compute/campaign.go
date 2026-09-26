@@ -142,18 +142,23 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 		return runDir, err
 	}
 
-	analysisConfig, err := archiveAnalysisConfig(runDir, cfg.Analyzer.Config)
-	if err != nil {
-		return runDir, recordCampaignFailure(runDir, &summary, err)
-	}
 	campaign := *cfg
 	campaign.ResultsDir = resultsDir
+	if cfg.Analyzer != nil {
+		analysisConfig, err := archiveAnalysisConfig(runDir, cfg.Analyzer.Config)
+		if err != nil {
+			return runDir, recordCampaignFailure(runDir, &summary, err)
+		}
+		// Copy before rewriting: campaign shares the caller's pointer.
+		analyzer := *cfg.Analyzer
+		analyzer.Config = analysisConfig
+		campaign.Analyzer = &analyzer
+	}
 	archivedWorkload, err := filepath.Abs(workloadArchive)
 	if err != nil {
 		return runDir, recordCampaignFailure(runDir, &summary, fmt.Errorf("resolving archived workload: %w", err))
 	}
 	campaign.Workload = archivedWorkload
-	campaign.Analyzer.Config = analysisConfig
 	if cfg.Generator != nil {
 		generator := *cfg.Generator
 		campaign.Generator = nil
@@ -199,13 +204,15 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 			return runDir, fmt.Errorf("writing campaign manifest after image resolution failure: %w", err)
 		}
 
-		return finishUnstartedCampaign(ctx, log, runDir, &summary, flattenRequests(plan), boundary, imageErr)
+		return finishUnstartedCampaign(ctx, log, runDir, &summary, flattenRequests(plan), boundary, cfg.Analyzer != nil, imageErr)
 	}
 	if generatedImage, ok := generatedWorkloadImage(workloadPath); ok {
 		images["generator"] = generatedImage
 	}
 	campaign.WorkerImage = images["worker"]
-	campaign.Analyzer.Image = images["analyzer"]
+	if campaign.Analyzer != nil {
+		campaign.Analyzer.Image = images["analyzer"]
+	}
 	summary.Instance.Image = images["worker"]
 	if err := writeComputeJSON(filepath.Join(runDir, "campaign.json"), &campaign); err != nil {
 		return runDir, recordCampaignFailure(runDir, &summary, fmt.Errorf("recording resolved campaign images: %w", err))
@@ -260,9 +267,10 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 		return runDir, err
 	}
 
-	_, analysisErr := Analyze(ctx, log, runDir, "")
-	if analysisErr != nil {
-		runErrors = append(runErrors, fmt.Errorf("analyzing compute campaign: %w", analysisErr))
+	if cfg.Analyzer != nil {
+		if _, analysisErr := Analyze(ctx, log, runDir, ""); analysisErr != nil {
+			runErrors = append(runErrors, fmt.Errorf("analyzing compute campaign: %w", analysisErr))
+		}
 	}
 	if len(runErrors) > 0 {
 		return runDir, errors.Join(runErrors...)
@@ -271,7 +279,7 @@ func Run(ctx context.Context, log logrus.FieldLogger, cfg *config.ComputeConfig)
 	return runDir, nil
 }
 
-func finishUnstartedCampaign(ctx context.Context, log logrus.FieldLogger, runDir string, summary *campaignSummary, requests []Request, boundary string, cause error) (string, error) {
+func finishUnstartedCampaign(ctx context.Context, log logrus.FieldLogger, runDir string, summary *campaignSummary, requests []Request, boundary string, analyze bool, cause error) (string, error) {
 	results := reconcileCampaignResults(requests, make(map[string]Result, len(requests)), boundary)
 	if err := writeCanonicalResults(runDir, requests, results); err != nil {
 		return runDir, err
@@ -285,6 +293,9 @@ func finishUnstartedCampaign(ctx context.Context, log logrus.FieldLogger, runDir
 	summary.TimestampEnd = time.Now().Unix()
 	if err := writeCampaignSummary(runDir, summary); err != nil {
 		return runDir, err
+	}
+	if !analyze {
+		return runDir, cause
 	}
 	_, analysisErr := Analyze(ctx, log, runDir, "")
 
@@ -444,7 +455,10 @@ func archiveAnalysisConfig(runDir, configuredPath string) (string, error) {
 }
 
 func resolveCampaignImages(ctx context.Context, manager docker.ContainerManager, cfg *config.ComputeConfig) (map[string]string, error) {
-	requested := map[string]string{"worker": cfg.WorkerImage, "analyzer": cfg.Analyzer.Image}
+	requested := map[string]string{"worker": cfg.WorkerImage}
+	if cfg.Analyzer != nil {
+		requested["analyzer"] = cfg.Analyzer.Image
+	}
 	if cfg.Generator != nil {
 		requested["generator"] = cfg.Generator.Image
 	}

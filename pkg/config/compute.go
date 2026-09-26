@@ -32,7 +32,7 @@ type ComputeConfig struct {
 	ContainerRuntime  string                  `yaml:"container_runtime,omitempty" mapstructure:"container_runtime" json:"container_runtime"`
 	WorkerImage       string                  `yaml:"worker_image" mapstructure:"worker_image" json:"worker_image"`
 	Generator         *ComputeGeneratorConfig `yaml:"generator,omitempty" mapstructure:"generator" json:"generator,omitempty"`
-	Analyzer          ComputeAnalyzerConfig   `yaml:"analyzer" mapstructure:"analyzer" json:"analyzer"`
+	Analyzer          *ComputeAnalyzerConfig  `yaml:"analyzer,omitempty" mapstructure:"analyzer" json:"analyzer,omitempty"`
 	Seed              int64                   `yaml:"seed" mapstructure:"seed" json:"seed"`
 	Sessions          int                     `yaml:"sessions" mapstructure:"sessions" json:"sessions"`
 	PilotRepetitions  int                     `yaml:"pilot_repetitions" mapstructure:"pilot_repetitions" json:"pilot_repetitions"`
@@ -54,7 +54,9 @@ type ComputeGeneratorConfig struct {
 	TxGasCap         uint64    `yaml:"tx_gas_cap,omitempty" mapstructure:"tx_gas_cap" json:"tx_gas_cap,omitempty"`
 }
 
-// ComputeAnalyzerConfig configures the evm-gasfit analysis invocation.
+// ComputeAnalyzerConfig configures the evm-gasfit analysis invocation. A
+// campaign without one is capture-only: it archives every sample and skips
+// analysis, for timing-only measurements that no pricing fit consumes.
 type ComputeAnalyzerConfig struct {
 	Image  string `yaml:"image" mapstructure:"image" json:"image"`
 	Config string `yaml:"config" mapstructure:"config" json:"config"`
@@ -107,16 +109,18 @@ func (c *ComputeConfig) Validate() error {
 		return fmt.Errorf("compute.worker_image is required")
 	}
 
-	if strings.TrimSpace(c.Analyzer.Image) == "" {
-		return fmt.Errorf("compute.analyzer.image is required")
-	}
+	if c.Analyzer != nil {
+		if strings.TrimSpace(c.Analyzer.Image) == "" {
+			return fmt.Errorf("compute.analyzer.image is required")
+		}
 
-	if err := validateComputeFile(c.Analyzer.Config, "compute.analyzer.config"); err != nil {
-		return err
-	}
+		if err := validateComputeFile(c.Analyzer.Config, "compute.analyzer.config"); err != nil {
+			return err
+		}
 
-	if err := ValidateComputeQualificationPolicy(c.Analyzer.Config, c.Engine); err != nil {
-		return err
+		if err := ValidateComputeQualificationPolicy(c.Analyzer.Config, c.Engine); err != nil {
+			return err
+		}
 	}
 
 	if !validComputeEngines[c.Engine] {

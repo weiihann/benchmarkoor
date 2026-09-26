@@ -26,6 +26,7 @@ B=$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 PIN=$(git -C "$B" rev-parse HEAD)
 S=$B/scripts/compute/pricing_campaign.py
 CTL=$B/bin/benchmarkoor
+. "$B/scripts/compute/host_facts.sh"
 mkdir -p "$RUN_HOME"
 RUN_HOME=$(cd "$RUN_HOME" && pwd)
 COMMON=(--run-home "$RUN_HOME" --generator-image "$GEN" --worker-image "$WORK" --engine newl1
@@ -45,14 +46,7 @@ for image in "$GEN" "$WORK" "$ANA"; do docker image inspect "$image" >/dev/null 
 for dir in "$NEWL1_ROOT" "$EXECUTION_SPECS_ROOT"; do git -C "$dir" rev-parse HEAD >/dev/null || fail "$dir is not a git checkout"; done
 
 if [[ ! -f "$RUN_HOME/host/facts.done" ]]; then
-  mkdir -p "$RUN_HOME/host"
-  lscpu >"$RUN_HOME/host/lscpu.txt"
-  lscpu -e=CPU,CORE,SOCKET,NODE,ONLINE,MAXMHZ >"$RUN_HOME/host/topology.txt"
-  uname -a >"$RUN_HOME/host/kernel.txt"
-  free -h >"$RUN_HOME/host/memory.txt"
-  docker info >"$RUN_HOME/host/docker-info.txt" 2>&1
-  { cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown; } >"$RUN_HOME/host/governor.txt"
-  { cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo unknown; } >"$RUN_HOME/host/boost.txt"
+  record_host_facts "$RUN_HOME/host"
   {
     echo "benchmarkoor $PIN"
     echo "newl1 $(git -C "$NEWL1_ROOT" rev-parse HEAD)"
@@ -86,7 +80,7 @@ if [[ ! -f "$RUN_HOME/smoke.done" ]]; then
   stamp "smoke capture"
   "$CTL" run --config "$RUN_HOME/config/smoke-compute.yaml" >"$RUN_HOME/smoke.log" 2>&1 \
     || fail "smoke capture or its analysis failed; see $RUN_HOME/smoke.log"
-  SMOKE_RUN=$(grep -o 'run_dir=[^ ]*' "$RUN_HOME/smoke.log" | tail -1 | cut -d= -f2)
+  SMOKE_RUN=$(grep -o 'run_dir=[^ ]*' "$RUN_HOME/smoke.log" | tail -1 | cut -d= -f2 || true)
   python3 - "$SMOKE_RUN" <<'PY' || fail "smoke glue detection check failed"
 import csv, glob, sys
 attempt = sorted(glob.glob(sys.argv[1] + "/analysis/*/reports/glue_detection_coverage.csv"))[-1]
@@ -103,7 +97,7 @@ if [[ ! -f "$RUN_HOME/full-capture.done" ]]; then
   stamp "full capture"
   "$CTL" run --config "$RUN_HOME/config/compute.yaml" 2>&1 | tee "$RUN_HOME/full-capture.log" \
     || stamp "controller exited non-zero; checking whether the capture was retained"
-  RUN=$(grep -o 'run_dir=[^ ]*' "$RUN_HOME/full-capture.log" | tail -1 | cut -d= -f2)
+  RUN=$(grep -o 'run_dir=[^ ]*' "$RUN_HOME/full-capture.log" | tail -1 | cut -d= -f2 || true)
   [[ -n "$RUN" && -f "$RUN/samples.jsonl" ]] || fail "full capture left no run directory"
   echo "$RUN" >"$RUN_HOME/full-capture.done"
 fi

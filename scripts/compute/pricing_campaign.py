@@ -935,6 +935,7 @@ def run_calibration(args: argparse.Namespace, directory: Path) -> None:
         "note": "calibration lane never widens the target inventory and is never priced"})
     run_generation_jobs(args, directory, jobs, role="calibration",
                         families=("calibration",))
+    preserve_interrupted_merge(args, directory)
     cases: list[dict[str, Any]] = []
     envelope: dict[str, Any] | None = None
     for job in jobs:
@@ -975,6 +976,24 @@ def run_calibration(args: argparse.Namespace, directory: Path) -> None:
     finish(directory, args, [directory / name for name in (
         "plan.json", "workload.json", "driver-coverage.json")]
         + [directory / job["name"] / "workload.json" for job in jobs])
+
+
+def preserve_interrupted_merge(args: argparse.Namespace, directory: Path) -> None:
+    """Move aside merge outputs of an attempt killed before ``finish``.
+
+    They derive from the job shards, which carry their own completion, so the
+    merge reruns instead of failing on its exclusive-create outputs.
+    """
+    if not (directory / "workload.json").is_file():
+        return
+    # Outside the stage directory: assemble audits every command record under it.
+    previous = args.run_home / f"{directory.name}.merge-attempt-{now().replace(':', '')}"
+    previous.mkdir()
+    for path in directory.iterdir():
+        if path.is_file() and path.name not in {"stage.json", "plan.json"}:
+            path.rename(previous / path.name)
+    append_record(args.run_home / "continuation.jsonl",
+                  {"stage": directory.name, "preserved_attempt": previous.name, "restarted": now()})
 
 
 def archive_recipe(args: argparse.Namespace) -> Path:
